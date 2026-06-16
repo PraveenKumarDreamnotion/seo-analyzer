@@ -1,0 +1,252 @@
+body {
+    font-family: Arial, sans-serif;
+    line-height: 1.6;
+    color: #333;
+    margin: 0;
+    padding: 20px;
+}
+
+h1, h2, h3, h4, h5 {
+    color: #2c3e50;
+    margin-top: 0;
+}
+
+h1 { font-size: 24px; margin-bottom: 20px; }
+h2 { font-size: 20px; margin-bottom: 15px; }
+h3 { font-size: 18px; margin-bottom: 10px; }
+h4 { font-size: 16px; margin-bottom: 8px; }
+h5 { font-size: 14px; margin-bottom: 5px; }
+
+.result-summary {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 30px;
+}
+
+.overall-performance, .competitor-overall-performance {
+    width: 48%;
+    background-color: #f8f9fa;
+    border-radius: 5px;
+    padding: 15px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.overall-score, .competitor-overall-score,
+.page-performance, .competitor-page-performance {
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+.overall-score h5, .competitor-overall-score h5,
+.page-performance h5, .competitor-page-performance h5 {
+    margin-bottom: 5px;
+}
+
+.overall-score h3, .competitor-overall-score h3,
+.page-performance h3, .competitor-page-performance h3 {
+    margin: 5px 0;
+    font-size: 24px;
+}
+
+.performance-tier {
+    font-size: 14px;
+    font-weight: bold;
+    margin: 5px 0;
+}
+
+.progress-bar-container {
+    width: 100%;
+    background-color: #e9ecef;
+    border-radius: 5px;
+    margin: 10px 0;
+    overflow: hidden;
+}
+
+.progress-bar {
+    height: 20px;
+    border-radius: 5px;
+}
+
+.progress-bar-green { background-color: #28a745; }
+.progress-bar-yellow { background-color: #ffc107; }
+.progress-bar-orange { background-color: #fd7e14; }
+.progress-bar-red { background-color: #dc3545; }
+
+.progress-text {
+    text-align: center;
+    font-weight: bold;
+    font-size: 14px;
+    margin-top: 5px;
+}
+
+.openai-summary-category-scores-inner {
+    display: block;
+    margin-top: 72px;
+    page-break-inside: avoid;
+}
+
+.openai-summary {
+    /* background-color: #e9f7fe;
+    border: 1px solid #b3e5fc;
+    border-radius: 5px;
+    padding: 15px;
+    margin-bottom: 30px;
+    page-break-inside: avoid; */
+}
+
+.category-scores {
+    width: 48%;
+    page-break-inside: avoid;
+}
+
+.openai-summary-category-scores-inner {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 30px;
+}
+
+.openai-summary, .category-scores {
+    width: 48%;
+}
+
+.openai-summary {
+    /* background-color: #e9f7fe;
+    border: 1px solid #b3e5fc;
+    border-radius: 5px;
+    padding: 15px; */
+}
+
+.category-scores table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 10px;
+}
+
+.category-scores th, .category-scores td {
+    border: 1px solid #dee2e6;
+    padding: 8px;
+    text-align: left;
+}
+
+.category-scores th {
+    background-color: #f8f9fa;
+    font-weight: bold;
+}
+
+.score-good { color: #28a745; }
+.score-average { color: #ffc107; }
+.score-poor { color: #dc3545; }
+
+.detailed-results {
+    margin-top: 30px;
+    page-break-before: always;
+}
+
+.detailed-results h2 {
+    text-align: center;
+    padding-bottom: 20px;
+    border-bottom: 1px solid #dee2e6;
+    margin-top: 0;
+}
+
+.detailed-results h3 {
+    margin-top: 25px;
+    margin-bottom: 15px;
+    color: #495057;
+}
+
+.detailed-results-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 20px;
+    font-size: 12px;
+}
+
+.detailed-results-table th,
+.detailed-results-table td {
+    border: 1px solid #dee2e6;
+    padding: 8px;
+    text-align: left;
+}
+
+.detailed-results-table th {
+    background-color: #f8f9fa;
+    font-weight: bold;
+}
+
+.detailed-results-table tr:nth-child(even) {
+    background-color: #f9f9f9;
+}
+
+.nlp-result {
+    /* background-color: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 5px;
+    padding: 15px; */
+    margin-top: 30px;
+}
+
+.nlp-result h4 {
+    color: #495057;
+    margin-bottom: 15px;
+}
+
+.nlp-result p {
+    margin-bottom: 10px;
+}
+
+.nlp-result ul {
+    padding-left: 20px;
+    margin-bottom: 10px;
+}
+
+.nlp-result li {
+    margin-bottom: 5px;
+}
+
+/* Ensure proper styling for NLP results in PDF */
+.content-analysis .nlp-result {
+    display: block;
+    margin-bottom: 20px;
+    padding: 15px;
+    background-color: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 5px;
+}
+
+.content-analysis .nlp-result h3 {
+    margin-top: 0;
+    margin-bottom: 10px;
+    color: #495057;
+}
+
+.content-analysis .nlp-result p {
+    margin-bottom: 10px;
+}
+
+.detailed-results-wrapper .nlp-result .detailed-results-wrapper, .nlp-result .ai-summary {
+    display: none !important;
+  }
+
+.openai-summary ul {
+    padding-left: 20px;
+    margin: 10px 0;
+    list-style: decimal;
+}
+
+.openai-summary li {
+    margin-bottom: 8px;
+    line-height: 1.5;
+    color: #333;
+}
+
+.openai-summary li:last-child {
+    margin-bottom: 0;
+}
+.openai-summary .ai-summary p.summary-heading {
+    font-weight: bold !important;
+}
+.openai-summary .ai-summary ul {
+    margin: 0px 0px 0px 10px !important;
+    padding: 0px 0px 0px 10px !important;
+}
