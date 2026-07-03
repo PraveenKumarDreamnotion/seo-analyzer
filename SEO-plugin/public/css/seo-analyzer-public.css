@@ -1463,3 +1463,9 @@ table.detailed-results-table tr td[data-label="Recommendation"]:last-child::befo
     border-color: #007cba;
     box-shadow: 0 0 0 1px #007cba;
 }
+
+@media screen and (max-width: 768px) {
+  .detailed-results-table td:nth-child(2) {
+    text-align: left;
+ }
+}

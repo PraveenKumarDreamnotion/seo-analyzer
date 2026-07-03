@@ -205,30 +205,27 @@ class Seo_Analyzer_Public {
     private function get_pagespeed_data($url) {
         global $wpdb;
         $table_name = $wpdb->prefix . 'seo_analyzer_api_keys';
-        
+
         try {
             $api_key = $wpdb->get_var("SELECT api_key FROM $table_name LIMIT 1");
             error_log('SEO Analyzer: Starting PageSpeed analysis for URL: ' . $url);
 
+            // --- Permanent failures below: no key / invalid URL. These are NOT retried. ---
             if (!$api_key) {
                 error_log('SEO Analyzer: No API key found in database');
-                return [
-                    'score' => 0,
-                    'message' => 'PageSpeed API key not found. Please set it in the plugin settings.',
-                    'factors' => []
-                ];
+                return $this->pagespeed_unavailable('PageSpeed API key not found. Please set it in the plugin settings.');
             }
 
             // Clean and validate URL
             $url = trim($url);
             $url = str_replace(array(' ', '\t', '\n', '\r'), '', $url);
-            
+
             // Remove any fragments
             $url = preg_replace('/#.*$/', '', $url);
-            
+
             // Remove multiple forward slashes
             $url = preg_replace('#(?<!:)//+#', '/', $url);
-            
+
             // Ensure URL has protocol
             if (!preg_match("~^(?:f|ht)tps?://~i", $url)) {
                 $url = "https://" . $url;
@@ -238,21 +235,13 @@ class Seo_Analyzer_Public {
             $parsed_url = parse_url($url);
             if (!$parsed_url || !isset($parsed_url['host'])) {
                 error_log('SEO Analyzer: Invalid URL structure - ' . $url);
-                return [
-                    'score' => 0,
-                    'message' => 'Invalid URL structure. Please enter a valid website URL.',
-                    'factors' => []
-                ];
+                return $this->pagespeed_unavailable('Invalid URL structure. Please enter a valid website URL.');
             }
 
             // Check for valid domain
             if (!preg_match('/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/i', $parsed_url['host'])) {
                 error_log('SEO Analyzer: Invalid domain name - ' . $parsed_url['host']);
-                return [
-                    'score' => 0,
-                    'message' => 'Invalid domain name. Please enter a valid website URL.',
-                    'factors' => []
-                ];
+                return $this->pagespeed_unavailable('Invalid domain name. Please enter a valid website URL.');
             }
 
             // Reconstruct the URL
@@ -266,158 +255,266 @@ class Seo_Analyzer_Public {
 
             error_log('SEO Analyzer: Cleaned URL - ' . $clean_url);
 
+            $strategy = 'mobile';
+
+            // --- Cache: only successful PageSpeed results are cached (6h). Failures are
+            // never persisted so a user's re-analyze can immediately try a fresh request. ---
+            $cache_key = 'seoa_psi_' . md5($clean_url . '|' . $strategy);
+            $cached = get_transient($cache_key);
+            if (is_array($cached) && isset($cached['available']) && $cached['available'] === true) {
+                error_log('SEO Analyzer: PageSpeed cache HIT for ' . $clean_url);
+                return $cached;
+            }
+
             // Build API URL with all necessary parameters
             $api_url = add_query_arg(
                 array(
                     'url' => $clean_url,
                     'key' => $api_key,
-                    'strategy' => 'mobile',
+                    'strategy' => $strategy,
                     'category' => array('performance', 'accessibility'),
                     'locale' => 'en'
                 ),
                 'https://www.googleapis.com/pagespeedonline/v5/runPagespeed'
             );
 
+            // Never log the key. Redact it before any logging of the request URL.
             error_log('SEO Analyzer: Calling PageSpeed API with URL: ' . str_replace($api_key, '[REDACTED]', $api_url));
 
-            $response = wp_remote_get($api_url, array(
-                'timeout' => 90,
-                'sslverify' => true,
-                'user-agent' => 'SEO Analyzer Bot/1.0',
-                'headers' => array(
-                    'Accept' => 'application/json',
-                    'Cache-Control' => 'no-cache'
-                )
-            ));
+            // --- Retry loop: max 2 attempts. Only recoverable failures trigger the retry. ---
+            $max_attempts = 2;
+            $last_message = 'PageSpeed data is temporarily unavailable. Please try again later.';
 
-            // Handle WP_Error properly
-            if (is_wp_error($response)) {
-                $error_message = $response->get_error_message();
-                error_log('SEO Analyzer: PageSpeed API Error - ' . $error_message);
-                return [
-                    'score' => 0,
-                    'message' => 'Error fetching PageSpeed data: ' . $error_message,
-                    'factors' => []
-                ];
+            for ($attempt = 1; $attempt <= $max_attempts; $attempt++) {
+                $response = wp_remote_get($api_url, array(
+                    'timeout' => 90,
+                    'sslverify' => true,
+                    'user-agent' => 'SEO Analyzer Bot/1.0',
+                    'headers' => array(
+                        'Accept' => 'application/json',
+                        'Cache-Control' => 'no-cache'
+                    )
+                ));
+
+                $outcome = $this->classify_pagespeed_response($response);
+
+                if ($outcome['status'] === 'success') {
+                    $result = $outcome['data'];
+                    set_transient($cache_key, $result, 6 * HOUR_IN_SECONDS);
+                    error_log('SEO Analyzer: PageSpeed SUCCESS for ' . $clean_url . ' on attempt ' . $attempt . '/' . $max_attempts . ' (score ' . $result['score'] . '); cached 6h.');
+                    return $result;
+                }
+
+                $last_message = $outcome['message'];
+
+                // Permanent failure (bad/unauthorized key, HTTP 400/401/403): do not retry.
+                if ($outcome['status'] === 'permanent') {
+                    error_log('SEO Analyzer: PageSpeed PERMANENT failure for ' . $clean_url . ' on attempt ' . $attempt . ' (no retry): ' . $last_message);
+                    return $this->pagespeed_unavailable($last_message);
+                }
+
+                // Recoverable failure (429/5xx/transport error/temporary runtime error/missing score).
+                error_log('SEO Analyzer: PageSpeed RECOVERABLE failure for ' . $clean_url . ' on attempt ' . $attempt . '/' . $max_attempts . ': ' . $last_message);
+
+                if ($attempt < $max_attempts) {
+                    $delay = $this->pagespeed_retry_delay($outcome);
+                    error_log('SEO Analyzer: Retrying PageSpeed in ' . $delay . 's for ' . $clean_url);
+                    if ($delay > 0) {
+                        sleep($delay);
+                    }
+                }
             }
 
-            $response_code = wp_remote_retrieve_response_code($response);
-            
-            // Handle various response codes
-            if ($response_code !== 200) {
-                $error_message = 'PageSpeed API returned status code ' . $response_code;
-                error_log('SEO Analyzer: ' . $error_message);
-                return [
-                    'score' => 0,
-                    'message' => $error_message . '. Please try again.',
-                    'factors' => []
-                ];
-            }
+            error_log('SEO Analyzer: PageSpeed UNAVAILABLE after ' . $max_attempts . ' attempts for ' . $clean_url . ': ' . $last_message);
+            return $this->pagespeed_unavailable($last_message);
 
-            $response_body = wp_remote_retrieve_body($response);
-            $response_headers = wp_remote_retrieve_headers($response);
-            
-            error_log('SEO Analyzer: PageSpeed API Response Code: ' . $response_code);
-            error_log('SEO Analyzer: PageSpeed API Response Headers: ' . print_r($response_headers, true));
-            error_log('SEO Analyzer: PageSpeed API Response Body: ' . substr($response_body, 0, 1000) . '...'); // Log first 1000 chars
+        } catch (Exception $e) {
+            error_log('SEO Analyzer: Exception in PageSpeed analysis - ' . $e->getMessage());
+            return $this->pagespeed_unavailable('PageSpeed data is temporarily unavailable. Please try again later.');
+        }
+    }
 
-            if ($response_code === 403) {
-                error_log('SEO Analyzer: API key unauthorized');
-                return [
-                    'score' => 0,
-                    'message' => 'PageSpeed API key is not authorized. Please check your API key configuration.',
-                    'factors' => []
-                ];
-            }
+    /**
+     * Structured "data unavailable" state for Page Performance.
+     *
+     * IMPORTANT: score is null (NOT 0) so the frontend and the overall-score
+     * calculation can distinguish "could not measure" from a genuine score of 0.
+     * The 'factors' key and shape stay compatible with a successful response.
+     */
+    private function pagespeed_unavailable($message) {
+        return array(
+            'score'     => null,
+            'available' => false,
+            'message'   => $message,
+            'factors'   => array()
+        );
+    }
 
-            $data = json_decode($response_body, true);
-            
+    /**
+     * Temporary/recoverable HTTP status codes that justify a single retry.
+     */
+    private function is_recoverable_http_code($code) {
+        return in_array((int) $code, array(429, 500, 502, 503, 504), true);
+    }
+
+    /**
+     * Classify a PageSpeed HTTP response into success | recoverable | permanent.
+     *
+     * - success   : valid Lighthouse performance score present -> processed result.
+     * - recoverable: transient failure (429/5xx, transport error, temporary
+     *                Lighthouse runtimeError, or missing performance score) -> retry.
+     * - permanent : bad request/unauthorized key (400/401/403) -> do not retry.
+     */
+    private function classify_pagespeed_response($response) {
+        if (is_wp_error($response)) {
+            // Transport-level errors (timeout, DNS, connection reset, SSL) are transient.
+            return array(
+                'status'      => 'recoverable',
+                'message'     => 'Error fetching PageSpeed data: ' . $response->get_error_message(),
+                'retry_after' => null
+            );
+        }
+
+        $code = (int) wp_remote_retrieve_response_code($response);
+        $body = wp_remote_retrieve_body($response);
+        error_log('SEO Analyzer: PageSpeed API Response Code: ' . $code);
+
+        if ($code === 200) {
+            $data = json_decode($body, true);
+
             if (json_last_error() !== JSON_ERROR_NONE) {
-                error_log('SEO Analyzer: JSON decode error - ' . json_last_error_msg());
-                return [
-                    'score' => 0,
-                    'message' => 'Error parsing PageSpeed response: ' . json_last_error_msg(),
-                    'factors' => []
-                ];
+                // A malformed body on a 200 is usually a truncated/proxy hiccup: retry once.
+                return array(
+                    'status'      => 'recoverable',
+                    'message'     => 'Error parsing PageSpeed response: ' . json_last_error_msg(),
+                    'retry_after' => null
+                );
             }
 
-            if (!$data || isset($data['error'])) {
-                $error_message = isset($data['error']['message']) ? $data['error']['message'] : 'Unknown error';
-                error_log('SEO Analyzer: Invalid PageSpeed data - ' . $error_message);
-                error_log('SEO Analyzer: Full response data - ' . print_r($data, true));
-                return [
-                    'score' => 0,
-                    'message' => 'Error analyzing page performance: ' . $error_message,
-                    'factors' => []
-                ];
+            if (is_array($data) && isset($data['error'])) {
+                $api_code = isset($data['error']['code']) ? (int) $data['error']['code'] : 0;
+                $api_msg  = isset($data['error']['message']) ? $data['error']['message'] : 'Unknown error';
+                if ($this->is_recoverable_http_code($api_code)) {
+                    return array('status' => 'recoverable', 'message' => 'PageSpeed temporary error: ' . $api_msg, 'retry_after' => null);
+                }
+                return array('status' => 'permanent', 'message' => 'Error analyzing page performance: ' . $api_msg);
+            }
+
+            // Lighthouse could not load/audit the page (common on slow/staging targets):
+            // treat as recoverable so the single retry gets a chance.
+            if (isset($data['lighthouseResult']['runtimeError'])) {
+                $rt_msg = isset($data['lighthouseResult']['runtimeError']['message'])
+                    ? $data['lighthouseResult']['runtimeError']['message']
+                    : 'Lighthouse runtime error';
+                return array('status' => 'recoverable', 'message' => 'PageSpeed could not analyze this URL: ' . $rt_msg, 'retry_after' => null);
             }
 
             if (!isset($data['lighthouseResult']['categories']['performance']['score'])) {
-                error_log('SEO Analyzer: No performance score in PageSpeed response');
-                error_log('SEO Analyzer: Available data structure - ' . print_r(array_keys($data), true));
-                if (isset($data['lighthouseResult'])) {
-                    error_log('SEO Analyzer: Lighthouse result structure - ' . print_r(array_keys($data['lighthouseResult']), true));
-                }
-                return [
-                    'score' => 0,
-                    'message' => 'Unable to calculate performance score. Please try analyzing again.',
-                    'factors' => []
-                ];
+                return array('status' => 'recoverable', 'message' => 'Unable to calculate performance score.', 'retry_after' => null);
             }
 
-            $performance_score = $data['lighthouseResult']['categories']['performance']['score'] * 100;
-            error_log('SEO Analyzer: Performance score calculated: ' . $performance_score);
-
-            $factors = [];
-            $audits = $data['lighthouseResult']['audits'];
-
-            $important_metrics = [
-                'first-contentful-paint' => 'First Contentful Paint',
-                'speed-index' => 'Speed Index',
-                'largest-contentful-paint' => 'Largest Contentful Paint',
-                'interactive' => 'Time to Interactive',
-                'total-blocking-time' => 'Total Blocking Time',
-                'cumulative-layout-shift' => 'Cumulative Layout Shift'
-            ];
-
-            foreach ($important_metrics as $metric_key => $metric_name) {
-                if (isset($audits[$metric_key])) {
-                    $metric = $audits[$metric_key];
-                    $recommendation = $metric['description'];
-                    
-                    // Remove the "Learn more about..." part from the recommendation
-                    $recommendation = preg_replace('/\s*\[Learn more about.*?\]\(.*?\)\.?/i', '', $recommendation);
-                    
-                    $metric_score = $metric['score'] * 100;
-                    error_log("SEO Analyzer: Metric {$metric_name} score: {$metric_score}");
-                    
-                    $factors[] = [
-                        'name' => $metric_name,
-                        'score' => $metric_score,
-                        'explanation' => $metric['title'],
-                        'recommendation' => trim($recommendation)
-                    ];
-                } else {
-                    error_log("SEO Analyzer: Metric {$metric_name} not found in audits");
-                }
-            }
-
-            $result = [
-                'score' => round($performance_score),
-                'message' => "Page Performance Score: $performance_score",
-                'factors' => $factors
-            ];
-            error_log('SEO Analyzer: Final PageSpeed result - ' . print_r($result, true));
-            
-            return $result;
-        } catch (Exception $e) {
-            error_log('SEO Analyzer: Exception in PageSpeed analysis - ' . $e->getMessage());
-            return [
-                'score' => 0,
-                'message' => 'Error analyzing page performance: ' . $e->getMessage(),
-                'factors' => []
-            ];
+            return array('status' => 'success', 'data' => $this->build_pagespeed_result($data));
         }
+
+        // Permanent client errors: bad request or bad/unauthorized API key. Do not retry.
+        if ($code === 400 || $code === 401 || $code === 403) {
+            $msg = ($code === 403)
+                ? 'PageSpeed API key is not authorized. Please check your API key configuration.'
+                : (($code === 401)
+                    ? 'PageSpeed API key is invalid or unauthorized.'
+                    : 'PageSpeed API rejected the request (HTTP 400).');
+            return array('status' => 'permanent', 'message' => $msg);
+        }
+
+        // Recoverable server/rate-limit codes -> retry (respect Retry-After for 429).
+        if ($this->is_recoverable_http_code($code)) {
+            $retry_after = ($code === 429) ? $this->parse_retry_after($response) : null;
+            return array(
+                'status'      => 'recoverable',
+                'message'     => 'PageSpeed API returned status code ' . $code . '.',
+                'retry_after' => $retry_after
+            );
+        }
+
+        // Any other non-200: treat conservatively as permanent (avoid hammering).
+        return array('status' => 'permanent', 'message' => 'PageSpeed API returned status code ' . $code . '.');
+    }
+
+    /**
+     * Build the processed Page Performance result from a valid PageSpeed response.
+     * Adds 'available' => true; otherwise identical shape/values to the original.
+     */
+    private function build_pagespeed_result($data) {
+        $performance_score = $data['lighthouseResult']['categories']['performance']['score'] * 100;
+        error_log('SEO Analyzer: Performance score calculated: ' . $performance_score);
+
+        $factors = array();
+        $audits = isset($data['lighthouseResult']['audits']) ? $data['lighthouseResult']['audits'] : array();
+
+        $important_metrics = array(
+            'first-contentful-paint'   => 'First Contentful Paint',
+            'speed-index'              => 'Speed Index',
+            'largest-contentful-paint' => 'Largest Contentful Paint',
+            'interactive'              => 'Time to Interactive',
+            'total-blocking-time'      => 'Total Blocking Time',
+            'cumulative-layout-shift'  => 'Cumulative Layout Shift'
+        );
+
+        foreach ($important_metrics as $metric_key => $metric_name) {
+            if (isset($audits[$metric_key])) {
+                $metric = $audits[$metric_key];
+                $recommendation = isset($metric['description']) ? $metric['description'] : '';
+                // Remove the "Learn more about..." part from the recommendation
+                $recommendation = preg_replace('/\s*\[Learn more about.*?\]\(.*?\)\.?/i', '', $recommendation);
+                $metric_score = isset($metric['score']) ? $metric['score'] * 100 : 0;
+
+                $factors[] = array(
+                    'name'           => $metric_name,
+                    'score'          => $metric_score,
+                    'explanation'    => isset($metric['title']) ? $metric['title'] : '',
+                    'recommendation' => trim($recommendation)
+                );
+            }
+        }
+
+        return array(
+            'score'     => round($performance_score),
+            'available' => true,
+            'message'   => "Page Performance Score: $performance_score",
+            'factors'   => $factors
+        );
+    }
+
+    /**
+     * Short, capped backoff before a single retry.
+     * For 429, respect a numeric Retry-After but cap it so the user never waits long.
+     */
+    private function pagespeed_retry_delay($outcome) {
+        $cap = 3; // seconds — keep total added wait small
+        if (!empty($outcome['retry_after']) && is_numeric($outcome['retry_after'])) {
+            return max(1, min($cap, (int) $outcome['retry_after']));
+        }
+        return 1; // default short backoff
+    }
+
+    /**
+     * Parse a Retry-After header. It may be an integer (seconds) or an HTTP-date.
+     * Returns seconds-from-now, or null if it cannot be interpreted.
+     */
+    private function parse_retry_after($response) {
+        $header = wp_remote_retrieve_header($response, 'retry-after');
+        if ($header === '' || $header === null) {
+            return null;
+        }
+        if (is_numeric($header)) {
+            return (int) $header;
+        }
+        $ts = strtotime($header);
+        if ($ts !== false) {
+            $delta = $ts - time();
+            return $delta > 0 ? $delta : null;
+        }
+        return null;
     }
 
     public function send_otp() {
@@ -679,11 +776,36 @@ class Seo_Analyzer_Public {
     }
 
     private function calculate_overall_score($scores, $weights) {
+        // Sum only the categories that actually have data, and renormalise by the
+        // total weight of those available categories. This prevents a temporarily
+        // unavailable category (e.g. Page Performance when PageSpeed fails) from
+        // being counted as a genuine 0 and dragging the overall score down.
+        //
+        // When ALL categories are available the weights sum to 1.0, so this is
+        // mathematically identical to the previous `round(sum(score*weight))` and
+        // successful reports keep the exact same overall score as before.
         $weighted_score = 0;
+        $total_weight   = 0;
+
         foreach ($scores as $category => $data) {
-            $weighted_score += $data['score'] * $weights[$category];
+            // Skip explicitly-unavailable categories (score === null / available === false).
+            if (is_array($data) && isset($data['available']) && $data['available'] === false) {
+                continue;
+            }
+            if (!is_array($data) || !array_key_exists('score', $data) || $data['score'] === null) {
+                continue;
+            }
+
+            $weight = isset($weights[$category]) ? $weights[$category] : 0;
+            $weighted_score += $data['score'] * $weight;
+            $total_weight   += $weight;
         }
-        return round($weighted_score);
+
+        if ($total_weight <= 0) {
+            return 0;
+        }
+
+        return round($weighted_score / $total_weight);
     }
 
     private function get_performance_tier($score) {
@@ -1021,6 +1143,18 @@ class Seo_Analyzer_Public {
 
     private function fetch_page_content($url) {
         try {
+            // --- Cache: only successful page content is cached (1h). This makes a
+            // repeat/second analysis of the same URL fast and avoids re-fetching the
+            // page during a single run. Failures are never cached so a re-analyze can
+            // retry immediately. Key is scheme-insensitive on the normalized URL. ---
+            $normalized_for_cache = strtolower(preg_replace('#^https?://#i', '', preg_replace('/#.*$/', '', trim($url))));
+            $content_cache_key = 'seoa_content_' . md5($normalized_for_cache);
+            $cached_content = get_transient($content_cache_key);
+            if (is_string($cached_content) && $cached_content !== '') {
+                error_log('SEO Analyzer: Page content cache HIT for ' . $url);
+                return array('success' => true, 'content' => $cached_content);
+            }
+
             // Local/dev hosts (e.g. DevKinsta *.local) use self-signed certificates,
             // so verifying SSL would fail with cURL error 60. Keep verification ON for
             // public hosts (security), but skip it for local/self-signed hosts only.
@@ -1051,14 +1185,34 @@ class Seo_Analyzer_Public {
                 )
             );
 
+            // Retry once on TRANSIENT SERVER failures only: a transport error (cURL 28
+            // timeout, DNS, reset, SSL) OR a 5xx server error.
+            //
+            // Deliberately DO NOT retry HTTP 429 (Too Many Requests): a 429 means the
+            // target is rate-limiting THIS server's IP (common when the target and this
+            // site are on the same host, e.g. both on Kinsta). Retrying immediately just
+            // hits the rate-limited endpoint again — it rarely clears the (longer) rate
+            // window and only adds load, making the 429 worse. A 429 is surfaced
+            // immediately as unavailable (the caller degrades gracefully) instead.
+            // Permanent statuses (403/404) and successes also stop the loop at once.
             $max_attempts = 2;
             $response = null;
             for ($attempt = 1; $attempt <= $max_attempts; $attempt++) {
                 $response = wp_remote_get($url, $request_args);
-                if (!is_wp_error($response)) {
-                    break;
+
+                if (is_wp_error($response)) {
+                    error_log('Error fetching URL content (attempt ' . $attempt . '/' . $max_attempts . ') for ' . $url . ': ' . $response->get_error_message());
+                } else {
+                    $attempt_code = (int) wp_remote_retrieve_response_code($response);
+                    if (!in_array($attempt_code, array(500, 502, 503, 504), true)) {
+                        break; // success, 429 (rate-limited), or permanent -> use this response as-is
+                    }
+                    error_log('Transient HTTP ' . $attempt_code . ' fetching URL content (attempt ' . $attempt . '/' . $max_attempts . ') for ' . $url);
                 }
-                error_log('Error fetching URL content (attempt ' . $attempt . '/' . $max_attempts . ') for ' . $url . ': ' . $response->get_error_message());
+
+                if ($attempt < $max_attempts) {
+                    sleep(1);
+                }
             }
 
             if (is_wp_error($response)) {
@@ -1095,6 +1249,9 @@ class Seo_Analyzer_Public {
                     'error' => 'The page returned empty content. Please verify the URL is correct.'
                 ];
             }
+
+            // Cache the successful fetch for 1 hour.
+            set_transient($content_cache_key, $content, HOUR_IN_SECONDS);
 
             return [
                 'success' => true,
@@ -1852,10 +2009,15 @@ class Seo_Analyzer_Public {
             'recommendation' => $recommendation
         ];
         
-        // Add meta robots tag check for LLM crawlers
-        $meta_robots_response = wp_remote_get($url);
-        $meta_robots_content = wp_remote_retrieve_body($meta_robots_response);
-        $has_llm_meta_robots = strpos($meta_robots_content, 'noai') !== false || 
+        // Add meta robots tag check for LLM crawlers.
+        // Reuse the already-fetched (cached) page content instead of re-fetching the
+        // page a second time — fetch_page_content() served the same URL moments ago in
+        // analyze_seo(), so this is a cache hit and avoids an extra outbound request to
+        // the target (helps stay under rate limits).
+        $meta_robots_result = $this->fetch_page_content($url);
+        $meta_robots_content = (!empty($meta_robots_result['success']) && !empty($meta_robots_result['content']))
+            ? $meta_robots_result['content'] : '';
+        $has_llm_meta_robots = strpos($meta_robots_content, 'noai') !== false ||
                               strpos($meta_robots_content, 'nollm') !== false;
         
         $meta_robots_score = $has_llm_meta_robots ? 0 : 100;
@@ -2172,8 +2334,9 @@ class Seo_Analyzer_Public {
 
     public function log_outgoing_requests($preempt, $args, $url) {
         if (strpos($url, 'pagespeed') !== false || strpos($url, 'your-analysis-endpoint') !== false) {
-            error_log('Outgoing request to: ' . $url);
-            error_log('Request args: ' . print_r($args, true));
+            // Redact the API key so it is never written to debug.log / PHP error log.
+            $safe_url = preg_replace('/([?&](?:key|api[_-]?key)=)[^&]+/i', '$1[REDACTED]', $url);
+            error_log('Outgoing request to: ' . $safe_url);
         }
         return $preempt;
     }
@@ -2192,30 +2355,23 @@ class Seo_Analyzer_Public {
             $url = "https://" . $url;
         }
 
-        // Fetch the page content with a browser User-Agent to avoid bot blocking
-        $response = wp_remote_get($url, array(
-            'timeout' => 20,
-            'sslverify' => false,
-            'redirection' => 5,
-            'headers' => array(
-                'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept' => 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                'Accept-Language' => 'en-US,en;q=0.5',
-            ),
-        ));
+        // DEDUPE: reuse the shared, cached, SSL-aware content fetch instead of making a
+        // second independent request to the target. fetch_page_title() always runs just
+        // before perform_seo_analysis (same URL), so this call populates the 1-hour
+        // content cache and the analysis step's own fetch_page_content() becomes a cache
+        // HIT — one outbound request per URL instead of two. Fewer requests = far less
+        // chance of tripping a target's rate limit (HTTP 429).
+        $result = $this->fetch_page_content($url);
 
-        if (is_wp_error($response)) {
-            wp_send_json_error($response->get_error_message());
-            return;
-        }
-
-        $http_code = wp_remote_retrieve_response_code($response);
-        if ($http_code < 200 || $http_code >= 400) {
+        // Title is non-essential: never fail the flow over it. On any fetch problem
+        // (403/429/timeout/etc.) return an empty title; the analysis step re-checks the
+        // URL and surfaces the real access error itself.
+        if (empty($result['success']) || empty($result['content'])) {
             wp_send_json_success(array('title' => ''));
             return;
         }
 
-        $body = wp_remote_retrieve_body($response);
+        $body = $result['content'];
 
         // Use DOTALL (s) flag so . matches newlines - titles often span multiple lines
         if (preg_match('/<title[^>]*>(.*?)<\/title>/is', $body, $matches)) {

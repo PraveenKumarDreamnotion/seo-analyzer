@@ -3,7 +3,7 @@
  * Plugin Name: SEO Analyzer
  * Plugin URI: https://thrivemattic.com/seo-analysis/
  * Description: A comprehensive SEO analysis tool for WordPress sites.
- * Version: 1.0.1
+ * Version: 1.0.6
  * Author: thrivemattic
  * Author URI: https://thrivemattic.com/
  * Text Domain: seo-analyzer
@@ -15,7 +15,7 @@ if (!defined('WPINC')) {
     die;
 }
 
-define('SEO_ANALYZER_VERSION', '1.0.1');
+define('SEO_ANALYZER_VERSION', '1.0.6');
 define('SEO_ANALYZER_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('SEO_ANALYZER_PLUGIN_URL', plugin_dir_url(__FILE__));
 

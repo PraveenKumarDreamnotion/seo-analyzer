@@ -171,6 +171,124 @@ jQuery(document).ready(function($) {
         return 'progress-bar-red';
     }
 
+    // --- Defensive helpers for missing / unavailable analysis data -----------------
+    // Returns the numeric score for a category object, or null when the data is
+    // unavailable (a temporary external failure marks it available:false / score:null).
+    // A GENUINE score of 0 is preserved (returns 0, not null), so real zeros still show.
+    function seoaCategoryScore(catObj) {
+        if (!catObj || typeof catObj !== 'object') return null;
+        if (catObj.available === false) return null;
+        var s = catObj.score;
+        if (s === null || s === undefined) return null;
+        var n = Number(s);
+        return isNaN(n) ? null : n;
+    }
+
+    // True only when a comparison competitor has real, renderable analysis data.
+    function seoaCompetitorAvailable(results) {
+        return !!(results && results.competitor
+            && !results.competitor.unavailable
+            && results.competitor.category_scores
+            && typeof results.competitor.category_scores === 'object');
+    }
+
+    // Safe, human-readable reason suffix for an unavailable competitor (e.g. " (HTTP 429...)").
+    // NOTE: uses an inline escape (not the inner-scope esc_html) so it is safe to call
+    // from these outer-closure helpers.
+    function seoaUnavailableReason(results) {
+        var r = results && results.competitor ? results.competitor.error : '';
+        if (typeof r === 'string' && r.trim()) {
+            var safe = r.trim().replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            return ' (' + safe + ')';
+        }
+        return '';
+    }
+
+    // Renders a Page Performance score block, or a clear "unavailable" block instead
+    // of a misleading 0% / Very Poor when the score could not be measured.
+    function seoaRenderPerfBlock(catObj) {
+        var s = seoaCategoryScore(catObj);
+        if (s === null) {
+            return '<h3>Data unavailable</h3>' +
+                   '<p class="performance-tier">Performance data is temporarily unavailable. Please try again later.</p>' +
+                   '<div class="progress-bar-container"><div class="progress-bar" style="width: 0%;"></div></div>';
+        }
+        return '<h3>' + Math.round(s) + '%</h3>' +
+               '<p class="performance-tier">' + getPerformanceTier(s) + '</p>' +
+               '<div class="progress-bar-container"><div class="progress-bar ' + getProgressBarClass(s) + '" style="width: ' + Math.round(s) + '%;"></div></div>';
+    }
+
+    // Safe "score%" cell text for the category table (real 0 shows "0%", missing shows "N/A").
+    function seoaScoreCellText(catObj) {
+        var s = seoaCategoryScore(catObj);
+        return (s === null) ? 'N/A' : (Math.round(s) + '%');
+    }
+    function seoaScoreCellClass(catObj) {
+        var s = seoaCategoryScore(catObj);
+        return (s === null) ? 'score-na' : getScoreClass(s);
+    }
+    // Safe overall-score rounding (falls back to "N/A" rather than "NaN%").
+    function seoaOverall(val) {
+        var n = Number(val);
+        return isNaN(n) ? 'N/A' : (Math.round(n) + '%');
+    }
+
+    // --- AJAX failure tracking -----------------------------------------------------
+    // Logs a detailed, trackable console error for any AJAX failure and, for the
+    // common "security check failed / HTTP 403" case, prints an explicit diagnosis:
+    // the page nonce is invalid or expired — almost always a full-page-cached page
+    // serving a stale nonce (frequent on Kinsta staging / WP Rocket / CDN).
+    function seoaLogAjaxFailure(context, xhr, textStatus, err) {
+        var httpStatus = (xhr && typeof xhr.status !== 'undefined') ? xhr.status : 'n/a';
+        var responseText = (xhr && xhr.responseText) ? String(xhr.responseText).slice(0, 300) : '';
+        console.error('SEO Analyzer: AJAX failure [' + context + ']', {
+            httpStatus: httpStatus,
+            textStatus: textStatus,
+            error: (err && err.message) ? err.message : err,
+            responseText: responseText
+        });
+        // 403, blocked (0), or a bare "-1" body are the WordPress signatures of a
+        // failed nonce (check_ajax_referer). Surface a clear, actionable message.
+        if (httpStatus === 403 || httpStatus === 0 || /(^|[^\d])-1([^\d]|$)/.test(responseText.trim())) {
+            console.error('SEO Analyzer: SECURITY / NONCE CHECK FAILED (HTTP ' + httpStatus + ') for "' + context +
+                '". The page nonce is invalid or expired — usually a full-page-cached page serving a stale nonce ' +
+                '(Kinsta/WP Rocket/CDN). Fix: clear the site + CDN cache and hard-refresh, or exclude this tool page from full-page caching.');
+        }
+    }
+
+    // True when a backend response is the "Security check failed" nonce error
+    // (perform_seo_analysis returns this via wp_send_json_error on a bad nonce).
+    function seoaIsSecurityFailure(data) {
+        return typeof data === 'string' && /security check failed/i.test(data);
+    }
+
+    // Emits a detailed, trackable console diagnosis for a BACKEND analysis failure
+    // (perform_seo_analysis returned success:false — i.e. the target URL could not be
+    // analysed). This is the key hook for identifying an HTTP 429 (and other causes),
+    // because a 429 arrives as a *successful* AJAX call with success:false in the body,
+    // so it never reaches the jQuery `error` handler.
+    function seoaLogBackendFailure(context, url, data) {
+        var msg = (typeof data === 'string') ? data : (data && data.message ? String(data.message) : '');
+        console.error('SEO Analyzer: analysis FAILED [' + context + '] for ' + url + ' → ' + (msg || 'unknown reason'));
+
+        var httpMatch = msg.match(/HTTP\s*(\d{3})/i);
+        var httpCode = httpMatch ? parseInt(httpMatch[1], 10) : null;
+
+        if (/\b429\b/.test(msg) || /too many requests/i.test(msg)) {
+            console.error('SEO Analyzer: DIAGNOSIS → TARGET RATE-LIMITED (HTTP 429). "' + url +
+                '" is refusing repeated requests from this server\'s IP — common when the target and this site are on the same host (e.g. both on Kinsta). ' +
+                'It is intermittent: wait a few minutes and retry, avoid rapid repeat scans, or analyse a different URL. This is the target site\'s rate limit, NOT a plugin error.');
+        } else if (httpCode === 403 || /blocking our analysis tool/i.test(msg)) {
+            console.error('SEO Analyzer: DIAGNOSIS → TARGET BLOCKED THE REQUEST (HTTP 403 / bot protection / WAF) for "' + url + '". The site is refusing automated access.');
+        } else if (httpCode && httpCode >= 500) {
+            console.error('SEO Analyzer: DIAGNOSIS → TARGET SERVER ERROR (HTTP ' + httpCode + ') for "' + url + '". The site returned a server error; try again later.');
+        } else if (/c?url error|resolve host|timed out|timeout|SSL|Could not access the URL:/i.test(msg)) {
+            console.error('SEO Analyzer: DIAGNOSIS → COULD NOT REACH "' + url + '" (DNS / SSL / timeout, or the site is down or unreachable from this server).');
+        } else if (/empty content/i.test(msg)) {
+            console.error('SEO Analyzer: DIAGNOSIS → "' + url + '" returned EMPTY content (the page may require JavaScript to render, or blocks bots).');
+        }
+    }
+
     $(function() {
         $('.seo-analyzer-form').on('submit', function(event) {
             event.preventDefault();
@@ -308,52 +426,73 @@ jQuery(document).ready(function($) {
 
             const progressInterval = simulateProgress($widget);
 
-            // Perform main URL analysis
+            // PERFORMANCE: run the main and competitor analyses CONCURRENTLY instead of
+            // sequentially (main was previously awaited before competitor started). Each
+            // analysis is dominated by a ~30s PageSpeed call, so parallelising roughly
+            // halves wall-clock time for a comparison report.
+            //
+            // NOTE: because both requests start upfront, the competitor site is now
+            // contacted even if the main URL ends up failing (the old code short-circuited
+            // that). This is an accepted, minor increase in external calls in exchange for
+            // the speed-up; the main URL remains authoritative for the report.
             console.log('Sending request to analyze main URL:', url);
             const mainAnalysisStartTime = performance.now();
-            
-            analyzeUrl(url, keyword, false)
-                .then(mainResults => {
+            const mainPromise = analyzeUrl(url, keyword, false);
+
+            let competitorPromise = Promise.resolve(null);
+            if (isComparison && competitorUrl) {
+                console.log('Sending request to analyze competitor URL:', competitorUrl);
+                // A competitor TRANSPORT error must never reject the whole chain (that would
+                // kill an otherwise-good main report). Normalise it into a resolved failure.
+                competitorPromise = analyzeUrl(competitorUrl, keyword, true)
+                    .catch(err => ({
+                        success: false,
+                        data: (err && err.message) ? err.message : 'Competitor request failed'
+                    }));
+            }
+
+            Promise.all([mainPromise, competitorPromise])
+                .then(([mainResults, competitorResults]) => {
                     const mainAnalysisEndTime = performance.now();
-                    console.log(`Main URL analysis completed in ${((mainAnalysisEndTime - mainAnalysisStartTime) / 1000).toFixed(2)} seconds`);
+                    console.log(`Main+competitor analysis settled in ${((mainAnalysisEndTime - mainAnalysisStartTime) / 1000).toFixed(2)} seconds`);
                     console.log('Main URL analysis response:', mainResults);
+                    console.log('Competitor URL analysis response:', competitorResults);
 
                     // If the main URL could not be analyzed, surface its error message
                     // directly instead of spreading the error string into the results object.
-                    if (!mainResults.success) {
-                        return mainResults;
+                    if (!mainResults || !mainResults.success) {
+                        console.error('SEO Analyzer: report cannot be generated — the PRIMARY URL failed: ' + url +
+                            ' → ' + ((mainResults && mainResults.data) || 'unknown reason') + '. See the SEO Analyzer diagnosis above.');
+                        return mainResults || { success: false, data: 'Analysis failed' };
                     }
 
-                    // If comparison is enabled and competitor URL exists, analyze competitor
+                    const data = { ...mainResults.data, url: url };
+
                     if (isComparison && competitorUrl) {
-                        console.log('Sending request to analyze competitor URL:', competitorUrl);
-                        const competitorAnalysisStartTime = performance.now();
-                        
-                        return analyzeUrl(competitorUrl, keyword, true)
-                            .then(competitorResults => {
-                                const competitorAnalysisEndTime = performance.now();
-                                console.log(`Competitor URL analysis completed in ${((competitorAnalysisEndTime - competitorAnalysisStartTime) / 1000).toFixed(2)} seconds`);
-                                console.log('Competitor URL analysis response:', competitorResults);
-                                return {
-                                    success: mainResults.success,
-                                    data: {
-                                        ...mainResults.data,
-                                        url: url,
-                                        competitor: {
-                                            ...competitorResults.data.competitor,
-                                            url: competitorUrl
-                                        }
-                                    }
-                                };
-                            });
-                    }
-                    return {
-                        success: mainResults.success,
-                        data: {
-                            ...mainResults.data,
-                            url: url
+                        // Only merge competitor data when it genuinely succeeded AND carries a
+                        // competitor object. Otherwise attach a structured "unavailable" marker
+                        // so the report still renders and never dereferences missing scores.
+                        if (competitorResults && competitorResults.success
+                            && competitorResults.data && competitorResults.data.competitor) {
+                            data.competitor = {
+                                ...competitorResults.data.competitor,
+                                url: competitorUrl
+                            };
+                        } else {
+                            const reason = (competitorResults && typeof competitorResults.data === 'string')
+                                ? competitorResults.data : '';
+                            console.warn('SEO Analyzer: COMPETITOR analysis is unavailable for ' + competitorUrl +
+                                ' → ' + (reason || 'unknown reason') + '. The main report will still render; the competitor column shows "Unavailable". See the SEO Analyzer diagnosis above for the specific cause.');
+                            data.competitor = {
+                                url: competitorUrl,
+                                unavailable: true,
+                                available: false,
+                                error: reason
+                            };
                         }
-                    };
+                    }
+
+                    return { success: true, data: data };
                 })
                 .then(finalResults => {
                     clearInterval(progressInterval);
@@ -394,10 +533,14 @@ jQuery(document).ready(function($) {
                         if (response.success) {
                             resolve(response.data.title);
                         } else {
+                            if (seoaIsSecurityFailure(response.data)) {
+                                console.error('SEO Analyzer: fetch_page_title returned "Security check failed" (nonce invalid/expired) for ' + url + '. Clear cache & hard-refresh.');
+                            }
                             reject(new Error(response.data || 'Failed to fetch page title'));
                         }
                     },
                     error: function(xhr, status, error) {
+                        seoaLogAjaxFailure('fetch_page_title (' + url + ')', xhr, status, error);
                         reject(error);
                     }
                 });
@@ -426,6 +569,11 @@ jQuery(document).ready(function($) {
                                 // would turn the string into a char-indexed object and
                                 // render as "[object Object]").
                                 if (!response.success) {
+                                    if (seoaIsSecurityFailure(response.data)) {
+                                        console.error('SEO Analyzer: perform_seo_analysis returned "Security check failed" (nonce invalid/expired) for ' + url + '. The page nonce is stale — clear the site + CDN cache and hard-refresh, or exclude this tool page from full-page caching.');
+                                    } else {
+                                        seoaLogBackendFailure(isCompetitor ? 'competitor URL' : 'main URL', url, response.data);
+                                    }
                                     resolve({ success: false, data: response.data });
                                     return;
                                 }
@@ -450,6 +598,7 @@ jQuery(document).ready(function($) {
                                 }
                             },
                             error: function(xhr, status, err) {
+                                seoaLogAjaxFailure('perform_seo_analysis (' + url + ')', xhr, status, err);
                                 reject(err);
                             }
                         });
@@ -470,6 +619,11 @@ jQuery(document).ready(function($) {
                             },
                             success: function(response) {
                                 if (!response.success) {
+                                    if (seoaIsSecurityFailure(response.data)) {
+                                        console.error('SEO Analyzer: perform_seo_analysis returned "Security check failed" (nonce invalid/expired) for ' + url + '. The page nonce is stale — clear the site + CDN cache and hard-refresh, or exclude this tool page from full-page caching.');
+                                    } else {
+                                        seoaLogBackendFailure(isCompetitor ? 'competitor URL' : 'main URL', url, response.data);
+                                    }
                                     resolve({ success: false, data: response.data });
                                     return;
                                 }
@@ -486,6 +640,7 @@ jQuery(document).ready(function($) {
                                 }
                             },
                             error: function(xhr, status, err) {
+                                seoaLogAjaxFailure('perform_seo_analysis (' + url + ')', xhr, status, err);
                                 reject(err);
                             }
                         });
@@ -652,26 +807,24 @@ jQuery(document).ready(function($) {
                                 <div class="progress-bar ${getProgressBarClass(results.overall_score)}" style="width: ${Math.round(results.overall_score)}%;"></div>
                             </div>
                             <h5>Page Performance:</h5>
-                            <h3>${Math.round(results.category_scores.page_performance.score)}%</h3>
-                            <p class="performance-tier">${getPerformanceTier(results.category_scores.page_performance.score)}</p>
-                            <div class="progress-bar-container">
-                                <div class="progress-bar ${getProgressBarClass(results.category_scores.page_performance.score)}" style="width: ${Math.round(results.category_scores.page_performance.score)}%;"></div>
-                            </div>
+                            ${seoaRenderPerfBlock(results.category_scores && results.category_scores.page_performance)}
                         </div>
                         ${isComparison && results.competitor ? `
                         <div class="score-card competitor-score">
                             <h5>Competitor's Overall Score:</h5>
+                            ${seoaCompetitorAvailable(results) ? `
                             <h3>${Math.round(results.competitor.overall_score)}%</h3>
                             <p class="performance-tier">${getPerformanceTier(results.competitor.overall_score)}</p>
                             <div class="progress-bar-container">
                                 <div class="progress-bar ${getProgressBarClass(results.competitor.overall_score)}" style="width: ${Math.round(results.competitor.overall_score)}%;"></div>
                             </div>
                             <h5>Page Performance:</h5>
-                            <h3>${Math.round(results.competitor.category_scores.page_performance.score)}%</h3>
-                            <p class="performance-tier">${getPerformanceTier(results.competitor.category_scores.page_performance.score)}</p>
-                            <div class="progress-bar-container">
-                                <div class="progress-bar ${getProgressBarClass(results.competitor.category_scores.page_performance.score)}" style="width: ${Math.round(results.competitor.category_scores.page_performance.score)}%;"></div>
-                            </div>
+                            ${seoaRenderPerfBlock(results.competitor.category_scores.page_performance)}
+                            ` : `
+                            <h3>Unavailable</h3>
+                            <p class="performance-tier">Competitor analysis is temporarily unavailable${seoaUnavailableReason(results)}.</p>
+                            <div class="progress-bar-container"><div class="progress-bar" style="width: 0%;"></div></div>
+                            `}
                         </div>
                         ` : ''}
                     </div>`;
@@ -709,13 +862,18 @@ jQuery(document).ready(function($) {
 
                 // Generate empty tables for each category
                 Object.entries(results.category_scores).forEach(([category, data]) => {
+                    // Guard the competitor cell: when the competitor is unavailable the
+                    // whole category_scores object is missing, so never index into it.
+                    const compCat = seoaCompetitorAvailable(results)
+                        ? results.competitor.category_scores[category]
+                        : null;
                     html += `
                         <tr>
                             <td>${formatCategoryName(category)}</td>
-                            <td class="${getScoreClass(data.score)}">${Math.round(data.score)}%</td>
+                            <td class="${seoaScoreCellClass(data)}">${seoaScoreCellText(data)}</td>
                             ${isComparison ? `
-                                <td class="${getScoreClass(results.competitor.category_scores[category].score)}">
-                                    ${Math.round(results.competitor.category_scores[category].score)}%
+                                <td class="${seoaScoreCellClass(compCat)}">
+                                    ${seoaScoreCellText(compCat)}
                                 </td>
                             ` : ''}
                         </tr>`;
@@ -831,14 +989,16 @@ jQuery(document).ready(function($) {
             
             Object.entries(results.category_scores).forEach(([category, data]) => {
                 const capitalizedCategory = formatCategoryName(category);
-                const competitorData = isComparison && results.competitor ? 
-                    results.competitor.category_scores[category] : null;
+                // Only read competitor category data when the competitor is actually available.
+                const competitorData = seoaCompetitorAvailable(results)
+                    ? results.competitor.category_scores[category] : null;
+                const mainScoreTxt = seoaScoreCellText(data);
 
                 html += `
                     <h3>${capitalizedCategory} ${
-                        competitorData ? 
-                        `(Score: ${Math.round(data.score)}%, Competitor's Score: ${Math.round(competitorData.score)}%)` : 
-                        `(Score: ${Math.round(data.score)}%)`
+                        competitorData ?
+                        `(Score: ${mainScoreTxt}, Competitor's Score: ${seoaScoreCellText(competitorData)})` :
+                        `(Score: ${mainScoreTxt})`
                     }</h3>
                     <table class="detailed-results-table${isComparison ? ' with-competitor' : ''}">
                         <thead>
@@ -999,6 +1159,12 @@ jQuery(document).ready(function($) {
             }
             if (typeof text !== 'string' || !text.trim()) {
                 text = 'Analysis failed. Please check the URL is correct and publicly accessible, then try again.';
+            }
+            // Map the cryptic nonce error to an actionable message (the user remedy for a
+            // stale/expired nonce, usually from a cached page, is to reload the page).
+            if (seoaIsSecurityFailure(text)) {
+                console.error('SEO Analyzer: displaying security/nonce failure to user (invalid or expired nonce — likely a cached page).');
+                text = 'Your session has expired or this page was served from cache. Please refresh the page (Ctrl/Cmd + Shift + R) and try again.';
             }
             $widget.find('.seo-analyzer-error').text(text).show();
             $widget.find('.seo-analyzer-results').hide();
@@ -1669,7 +1835,16 @@ jQuery(document).ready(function($) {
 
     function generatePDFResultSummary(results) {
         const isComparison = results.competitor !== undefined;
-        
+        // Competitor scores are only safe to read when the competitor actually succeeded.
+        const competitorAvailable = seoaCompetitorAvailable(results);
+        // Page Performance may be unavailable (null) after a failed PageSpeed retry.
+        const mainPP = seoaCategoryScore(results.category_scores && results.category_scores.page_performance);
+        const compPP = competitorAvailable ? seoaCategoryScore(results.competitor.category_scores.page_performance) : null;
+        const ppNum = (v) => (v === null ? 0 : Math.round(v));
+        const ppTxt = (v) => (v === null ? 'Data unavailable' : (Math.round(v) + '%'));
+        const ppTier = (v) => (v === null ? 'Unavailable' : getPerformanceTier(v));
+        const ppColor = (v) => (v === null ? '#e9ecef' : getProgressBarColor(v));
+
         // Get domain names with validation
         let mainDomain = 'Website 1';
         let competitorDomain = 'Website 2';
@@ -1714,12 +1889,12 @@ jQuery(document).ready(function($) {
                         </table>
                         <h5 style="margin: 20px 0 10px 0; font-size: 16px; color: #333;">Page Performance:</h5>
                         <br>
-                        <h3 style="margin: 0; padding-bottom: 10px; font-size: 24px; color: #333;">${Math.round(results.category_scores.page_performance.score)}%</h3>
-                        <p style="margin: 5px 0; font-size: 14px; font-weight: bold; color: #333;">${getPerformanceTier(results.category_scores.page_performance.score)}</p>
+                        <h3 style="margin: 0; padding-bottom: 10px; font-size: 24px; color: #333;">${ppTxt(mainPP)}</h3>
+                        <p style="margin: 5px 0; font-size: 14px; font-weight: bold; color: #333;">${ppTier(mainPP)}</p>
                         <table style="width: 100%; border-collapse: collapse; margin: 10px 0;">
                             <tr>
-                                <td style="width: ${Math.round(results.category_scores.page_performance.score)}%; background-color: ${getProgressBarColor(results.category_scores.page_performance.score)}; height: 20px; border-radius: 5px 0 0 5px;"></td>
-                                <td style="width: ${100 - Math.round(results.category_scores.page_performance.score)}%; background-color: #e9ecef; height: 20px; border-radius: 0 5px 5px 0;"></td>
+                                <td style="width: ${ppNum(mainPP)}%; background-color: ${ppColor(mainPP)}; height: 20px; border-radius: 5px 0 0 5px;"></td>
+                                <td style="width: ${100 - ppNum(mainPP)}%; background-color: #e9ecef; height: 20px; border-radius: 0 5px 5px 0;"></td>
                             </tr>
                         </table>
                     </td>
@@ -1727,6 +1902,7 @@ jQuery(document).ready(function($) {
                     <td style="width: 48%; padding: 20px; background: linear-gradient(84.18deg, #DFEFFF 15.54%, #FFFFFF 97.88%); border-radius: 10px; vertical-align: top;">
                         <h5 style="margin: 0; padding-bottom: 10px; font-size: 16px; color: #333;">${competitorDomain} Overall Score:</h5>
                         <br>
+                        ${competitorAvailable ? `
                         <h3 style="margin: 0; padding-bottom: 10px; font-size: 24px; color: #333;">${Math.round(results.competitor.overall_score)}%</h3>
                         <p style="margin: 5px 0; font-size: 14px; font-weight: bold; color: #333;">${getPerformanceTier(results.competitor.overall_score)}</p>
                         <table style="width: 100%; border-collapse: collapse; margin: 10px 0;">
@@ -1737,14 +1913,17 @@ jQuery(document).ready(function($) {
                         </table>
                         <h5 style="margin: 20px 0 10px 0; font-size: 16px; color: #333;">Page Performance:</h5>
                         <br>
-                        <h3 style="margin: 0; padding-bottom: 10px; font-size: 24px; color: #333;">${Math.round(results.competitor.category_scores.page_performance.score)}%</h3>
-                        <p style="margin: 5px 0; font-size: 14px; font-weight: bold; color: #333;">${getPerformanceTier(results.competitor.category_scores.page_performance.score)}</p>
+                        <h3 style="margin: 0; padding-bottom: 10px; font-size: 24px; color: #333;">${ppTxt(compPP)}</h3>
+                        <p style="margin: 5px 0; font-size: 14px; font-weight: bold; color: #333;">${ppTier(compPP)}</p>
                         <table style="width: 100%; border-collapse: collapse; margin: 10px 0;">
                             <tr>
-                                <td style="width: ${Math.round(results.competitor.category_scores.page_performance.score)}%; background-color: ${getProgressBarColor(results.competitor.category_scores.page_performance.score)}; height: 20px; border-radius: 5px 0 0 5px;"></td>
-                                <td style="width: ${100 - Math.round(results.competitor.category_scores.page_performance.score)}%; background-color: #e9ecef; height: 20px; border-radius: 0 5px 5px 0;"></td>
+                                <td style="width: ${ppNum(compPP)}%; background-color: ${ppColor(compPP)}; height: 20px; border-radius: 5px 0 0 5px;"></td>
+                                <td style="width: ${100 - ppNum(compPP)}%; background-color: #e9ecef; height: 20px; border-radius: 0 5px 5px 0;"></td>
                             </tr>
                         </table>
+                        ` : `
+                        <p style="margin: 5px 0; font-size: 14px; font-weight: bold; color: #333;">Competitor analysis is temporarily unavailable.</p>
+                        `}
                     </td>
                     ` : ''}
                 </tr>
@@ -1772,13 +1951,18 @@ jQuery(document).ready(function($) {
                                 </tr>
                             </thead>
                             <tbody>
-                                ${Object.entries(results.category_scores).map(([category, data]) => `
+                                ${Object.entries(results.category_scores).map(([category, data]) => {
+                                    const mScore = seoaCategoryScore(data);
+                                    const cCat = competitorAvailable ? results.competitor.category_scores[category] : null;
+                                    const cScore = seoaCategoryScore(cCat);
+                                    return `
                                     <tr>
                                         <td style="border: 1px solid #3095ff; padding: 10px; color: #333;">${formatCategoryName(category)}</td>
-                                        <td style="border: 1px solid #3095ff; padding: 10px; text-align: center; font-weight: bold; color: ${getScoreColor(data.score)};">${data.score}</td>
-                                        ${isComparison ? `<td style="border: 1px solid #3095ff; padding: 10px; text-align: center; font-weight: bold; color: ${getScoreColor(results.competitor.category_scores[category].score)};">${results.competitor.category_scores[category].score}</td>` : ''}
+                                        <td style="border: 1px solid #3095ff; padding: 10px; text-align: center; font-weight: bold; color: ${getScoreColor(mScore === null ? 0 : mScore)};">${mScore === null ? 'N/A' : data.score}</td>
+                                        ${isComparison ? `<td style="border: 1px solid #3095ff; padding: 10px; text-align: center; font-weight: bold; color: ${getScoreColor(cScore === null ? 0 : cScore)};">${cScore === null ? 'N/A' : cCat.score}</td>` : ''}
                                     </tr>
-                                `).join('')}
+                                `;
+                                }).join('')}
                             </tbody>
                         </table>
                     </td>
