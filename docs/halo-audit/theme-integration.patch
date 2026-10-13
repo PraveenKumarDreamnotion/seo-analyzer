@@ -1,7 +1,7 @@
-diff --git a/a/wp-content/plugins/tm-blocks/assets/css/tm-blocks.css b/b/wp-content/plugins/tm-blocks/assets/css/tm-blocks.css
+diff --git a/wp-content/plugins/tm-blocks/assets/css/tm-blocks.css b/wp-content/plugins/tm-blocks/assets/css/tm-blocks.css
 index ef1bc70..7a43468 100644
---- a/a/wp-content/plugins/tm-blocks/assets/css/tm-blocks.css
-+++ b/b/wp-content/plugins/tm-blocks/assets/css/tm-blocks.css
+--- a/wp-content/plugins/tm-blocks/assets/css/tm-blocks.css
++++ b/wp-content/plugins/tm-blocks/assets/css/tm-blocks.css
 @@ -13864,6 +13864,39 @@ body.tm-blocks-page.page-id-917 .tmsa-audit-panel.tmsa-running .tmsa-audit-col {
  body.tm-blocks-page.page-id-917 .tmsa-audit-panel.tmsa-running .tmsa-audit-col .seo-analyzer-form { display: none !important; }
  body.tm-blocks-page.page-id-917 .tmsa-audit-panel.tmsa-running .tmsa-audit-col p.tmsa-audit-sub { display: none !important; }
@@ -82,10 +82,10 @@ index ef1bc70..7a43468 100644
  /* -- Report mock (raw SVG, in tm/content-html) — two-ring you-vs-them -- */
  body.tm-blocks-page.page-id-937 .tmca-report-col { padding: 0 !important; }
  body.tm-blocks-page.page-id-937 .tmca-rm { background: var(--charcoal); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); overflow: hidden; margin: 0; }
-diff --git a/a/wp-content/themes/generatepress_child/assets/js/tm-competitor-analysis.js b/b/wp-content/themes/generatepress_child/assets/js/tm-competitor-analysis.js
+diff --git a/wp-content/themes/generatepress_child/assets/js/tm-competitor-analysis.js b/wp-content/themes/generatepress_child/assets/js/tm-competitor-analysis.js
 index 5420bed..6104caf 100644
---- a/a/wp-content/themes/generatepress_child/assets/js/tm-competitor-analysis.js
-+++ b/b/wp-content/themes/generatepress_child/assets/js/tm-competitor-analysis.js
+--- a/wp-content/themes/generatepress_child/assets/js/tm-competitor-analysis.js
++++ b/wp-content/themes/generatepress_child/assets/js/tm-competitor-analysis.js
 @@ -51,6 +51,21 @@
    (function auditToggle() {
      var panel = document.querySelector('.tmca-audit-panel');
@@ -108,10 +108,10 @@ index 5420bed..6104caf 100644
      var loading = panel.querySelector('.seo-analyzer-loading');
      if (!loading) { return; }
  
-diff --git a/a/wp-content/themes/generatepress_child/assets/js/tm-seo-analysis.js b/b/wp-content/themes/generatepress_child/assets/js/tm-seo-analysis.js
+diff --git a/wp-content/themes/generatepress_child/assets/js/tm-seo-analysis.js b/wp-content/themes/generatepress_child/assets/js/tm-seo-analysis.js
 index a3141c2..21b82ea 100644
---- a/a/wp-content/themes/generatepress_child/assets/js/tm-seo-analysis.js
-+++ b/b/wp-content/themes/generatepress_child/assets/js/tm-seo-analysis.js
+--- a/wp-content/themes/generatepress_child/assets/js/tm-seo-analysis.js
++++ b/wp-content/themes/generatepress_child/assets/js/tm-seo-analysis.js
 @@ -50,6 +50,21 @@
    (function auditToggle() {
      var panel = document.querySelector('.tmsa-audit-panel');
