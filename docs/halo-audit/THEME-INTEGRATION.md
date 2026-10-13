@@ -29,7 +29,7 @@ All three changes only add lines. The rules and the script branch for the 1.x wi
 |---|---|
 | `wp-content/themes/generatepress_child/assets/js/tm-seo-analysis.js` | 15 lines added in `auditToggle` |
 | `wp-content/themes/generatepress_child/assets/js/tm-competitor-analysis.js` | The same 15 lines, with `tmca-running` |
-| `wp-content/plugins/tm-blocks/assets/css/tm-blocks.css` | 31 lines added in the page 917 block and 31 in the page 937 block |
+| `wp-content/plugins/tm-blocks/assets/css/tm-blocks.css` | 33 lines added in the page 917 block and 33 in the page 937 block |
 
 ### Script (page 917; page 937 is the same with `.tmca-audit-panel` and `tmca-running`)
 
@@ -49,7 +49,7 @@ The script adds no submit listener. The plugin owns the form.
 
 ### Styles (page 917; page 937 is the same with `page-id-937`, `.tmca-audit-col`, `.tmca-audit-panel`, `tmca-running`)
 
-Added after the existing `.tmsa-running` rules. Every rule is scoped to `body.tm-blocks-page.page-id-917`.
+Added after the existing `.tmsa-running` rules. In the file every selector starts with `body.tm-blocks-page.page-id-917`; the prefix is left out below to keep the lines short. The exact lines are in `theme-integration.patch`.
 
 ```css
 .tmsa-audit-col .halo-audit { max-width: none !important; margin: 0 !important; }
@@ -65,6 +65,8 @@ main#main .tmsa-audit-col ul.halo-audit__groups { padding-left: 0 !important; ma
 @media (min-width: 901px) {
   .tmsa-audit-panel.tmsa-running .halo-audit__groups { display: grid !important; grid-template-columns: repeat(4, 1fr) !important; gap: 16px !important; border-top: none !important; }
   .tmsa-audit-panel.tmsa-running .halo-audit__group { padding: 16px 18px !important; background: var(--cream) !important; border: 1px solid var(--border-light) !important; border-radius: var(--radius) !important; }
+}
+@media (min-width: 1200px) {
   .tmsa-audit-panel.tmsa-running .halo-audit__findings { column-count: 2; column-gap: 48px; }
   .tmsa-audit-panel.tmsa-running .halo-audit__section { break-inside: avoid-column; }
   .tmsa-audit-panel.tmsa-running .halo-audit__section:first-child { margin-top: 0 !important; }
@@ -80,10 +82,11 @@ Why each rule is there:
 
 ## Deploying the theme files
 
-1. Copy the three files to the site.
-2. WP Rocket keeps minified copies under `wp-content/cache/min/`. They are not rebuilt when the source changes. Clear the WP Rocket cache (or at least the minified CSS and JS) after copying the files. On the local site the old script kept being served until the three minified copies were removed.
-3. If "Remove Unused CSS" is on (it is off on the local site), add `halo-audit`, `tmsa-running` and `tmca-running` to its safelist. These classes are added by scripts after load, so their rules would be stripped.
-4. "Delay JavaScript execution" is on locally. The widget and the theme script both start on the visitor's first interaction, in order. No exclusion was needed.
+1. Apply `theme-integration.patch` (in this folder) from the WordPress root: `git apply --directory=. theme-integration.patch` or `patch -p1 < theme-integration.patch`. It only adds lines: 66 to `tm-blocks.css` and 15 to each script. Do not copy the local files over the target's. The local `tm-blocks` folder holds other uncommitted edits, and the target may hold newer ones.
+2. Clear the whole WP Rocket cache, pages and minified files, then any CDN in front of it. WP Rocket keeps minified copies under `wp-content/cache/min/` and does not rebuild them when the source changes. On the local site the old script and stylesheet kept being served until the three minified copies were removed.
+3. If the target serves these files without WP Rocket's minify (so the `ver` in the URL is the one from the enqueue call), also bump `TMB_VERSION` in `tm-blocks.php` and the two version strings in the child theme's `functions.php` (`tm_enqueue_seo_analysis`, `tm_enqueue_competitor_analysis`). They were not bumped locally.
+4. If "Remove Unused CSS" is on (it is off on the local site, so this was not tested), add `halo-audit`, `tmsa-running` and `tmca-running` to its safelist. These classes are added by scripts after load, so their rules would be stripped.
+5. "Delay JavaScript execution" is on locally, and both the widget script and the theme script are delayed until the first interaction. Tested on page 917 at 390px: when the first interaction was the Analyse click, or Enter in the keyword field, the audit request was sent once and the page did not reload. No exclusion was needed locally.
 
 ## Not changed
 
