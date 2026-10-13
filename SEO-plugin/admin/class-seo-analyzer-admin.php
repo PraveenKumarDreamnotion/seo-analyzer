@@ -35,14 +35,6 @@ class Seo_Analyzer_Admin {
 
     public function enqueue_scripts() {
         wp_enqueue_script($this->plugin_name, plugin_dir_url(__FILE__) . 'js/seo-analyzer-admin.js', array('jquery'), $this->version, false);
-        wp_add_inline_script($this->plugin_name, "
-            jQuery(document).ready(function($) {
-                $('form').on('submit', function() {
-                    console.log('Form submitted');
-                    console.log('API Key:', $('#seo_analyzer_pagespeed_api_key').val());
-                });
-            });
-        ");
     }
 
     public function register_and_build_fields() {
@@ -555,9 +547,7 @@ class Seo_Analyzer_Admin {
         $table_name = $wpdb->prefix . 'seo_analyzer_api_keys';
 
         $new_input = sanitize_text_field($input);
-        
-        error_log('Validating PageSpeed API Key: ' . $new_input);
-        
+
         if (empty($new_input)) {
             add_settings_error(
                 'seo_analyzer_pagespeed_api_key',
@@ -590,7 +580,6 @@ class Seo_Analyzer_Admin {
             );
         }
 
-        error_log('PageSpeed API Key validation successful. Saving: ' . $new_input);
         return $new_input;
     }
 
@@ -690,21 +679,20 @@ class Seo_Analyzer_Admin {
             return;
         }
 
-        if (isset($_GET['action']) && isset($_GET['id'])) {
-            $action = $_GET['action'];
-            $id = intval($_GET['id']);
+        if (!isset($_GET['action']) || !isset($_GET['id'])) {
+            return;
+        }
 
-            switch ($action) {
-                case 'view':
-                    $this->view_report($id);
-                    break;
-                case 'download':
-                    $this->download_report($id);
-                    exit; // Make sure to exit after sending the file
-                case 'email':
-                    $this->email_report($id);
-                    break;
-            }
+        if (!current_user_can('manage_options')) {
+            wp_die(esc_html__('You do not have permission to do this.', 'seo-analyzer'), '', array('response' => 403));
+        }
+
+        $id = intval($_GET['id']);
+        check_admin_referer('seo_analyzer_report_' . $id);
+
+        if ($_GET['action'] === 'download') {
+            $this->download_report($id);
+            exit; // Make sure to exit after sending the file
         }
     }
 

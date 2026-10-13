@@ -12,16 +12,6 @@ class Seo_Analyzer_Public {
         add_action('wp_ajax_nopriv_send_otp', array($this, 'send_otp'));
         add_action('wp_ajax_verify_otp_and_save_data', array($this, 'verify_otp_and_save_data'));
         add_action('wp_ajax_nopriv_verify_otp_and_save_data', array($this, 'verify_otp_and_save_data'));
-        add_action('wp_ajax_test_wp_mail', array($this, 'test_wp_mail'));
-        add_action('wp_ajax_nopriv_test_wp_mail', array($this, 'test_wp_mail'));
-        add_action('wp_ajax_save_competitor_score', array($this, 'save_competitor_score'));
-        add_action('wp_ajax_nopriv_save_competitor_score', array($this, 'save_competitor_score'));
-        add_action('wp_ajax_save_competitor_data', array($this, 'save_competitor_data'));
-        add_action('wp_ajax_nopriv_save_competitor_data', array($this, 'save_competitor_data'));
-        add_action('wp_ajax_save_competitor_results', array($this, 'save_competitor_results'));
-        add_action('wp_ajax_nopriv_save_competitor_results', array($this, 'save_competitor_results'));
-        add_action('wp_ajax_save_competitor_overall_score', array($this, 'save_competitor_overall_score'));
-        add_action('wp_ajax_nopriv_save_competitor_overall_score', array($this, 'save_competitor_overall_score'));
         add_action('wp_ajax_download_pdf_report', array($this, 'download_pdf_report'));
         add_action('wp_ajax_nopriv_download_pdf_report', array($this, 'download_pdf_report'));
         add_action('wp_ajax_fetch_page_title', array($this, 'fetch_page_title'));
@@ -581,8 +571,6 @@ class Seo_Analyzer_Public {
         $competitor_url = isset($_POST['competitor_url']) ? esc_url_raw($_POST['competitor_url']) : '';
         $results = json_decode(stripslashes($_POST['results']), true);
 
-        error_log('Received data: ' . print_r($_POST, true));
-
         global $wpdb;
         $otp_table_name = $wpdb->prefix . 'seo_analyzer_otp';
 
@@ -609,10 +597,6 @@ class Seo_Analyzer_Public {
         $overall_score = isset($results['overall_score']) ? $results['overall_score'] : null;
         $competitor_overall_score = isset($competitor_results['overall_score']) ? $competitor_results['overall_score'] : null;
 
-        // Debug logging
-        error_log('Full results: ' . print_r($results, true));
-        error_log('Competitor results: ' . print_r($competitor_results, true));
-
         $data_to_insert = array(
             'name' => $name,
             'email' => $email,
@@ -625,8 +609,6 @@ class Seo_Analyzer_Public {
             'competitor_overall_score' => $competitor_overall_score,
             'created_at' => current_time('mysql')
         );
-
-        error_log('Attempting to insert data: ' . print_r($data_to_insert, true));
 
         $inserted = $wpdb->insert(
             $results_table_name,
@@ -1229,7 +1211,7 @@ class Seo_Analyzer_Public {
                 error_log('Access forbidden (403) for URL: ' . $url);
                 return [
                     'success' => false,
-                    'error' => 'This website is blocking our analysis tool. This usually happens with e-commerce sites like Zara, Amazon, etc. Please try analyzing a different page or contact support for a manual analysis.'
+                    'error' => 'The website refused our automated request (HTTP 403), possibly because of its security settings. Try a URL you are authorized to analyze that permits automated access, or contact the website administrator.'
                 ];
             }
 
@@ -1344,7 +1326,7 @@ class Seo_Analyzer_Public {
 
         // Keyword Density
         $keyword_count = substr_count(strtolower($page_content), strtolower($keyword));
-        $keyword_density = ($keyword_count / $word_count) * 100;
+        $keyword_density = $word_count > 0 ? ($keyword_count / $word_count) * 100 : 0;
         $keyword_density_score = ($keyword_density >= 0.5 && $keyword_density <= 2.5) ? 100 : 50;
         $factors[] = [
             'name' => 'Keyword Density',
