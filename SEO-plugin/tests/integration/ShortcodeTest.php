@@ -45,6 +45,13 @@ class Halo_Shortcode_Test extends WP_UnitTestCase
         $this->assertStringContainsString('<h2 class="halo-audit__title"', do_shortcode('[seo_analyzer heading_level="script"]'));
     }
 
+    public function test_align_adds_the_standard_wide_or_full_class_and_nothing_else(): void
+    {
+        $this->assertStringContainsString('<section class="halo-audit alignwide" ', do_shortcode('[seo_analyzer align="wide"]'));
+        $this->assertStringContainsString('<section class="halo-audit alignfull" ', do_shortcode('[seo_analyzer align="FULL"]'));
+        $this->assertStringContainsString('<section class="halo-audit" ', do_shortcode('[seo_analyzer align="left\" onclick=\"x"]'));
+    }
+
     public function test_two_widgets_on_one_page_do_not_share_ids(): void
     {
         $html = do_shortcode('[seo_analyzer][seo_analyzer]');

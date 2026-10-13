@@ -50,7 +50,8 @@ final class Admin
         echo '<div class="wrap"><h1>SEO Analyzer</h1><p>Add the tool to any page with this shortcode:</p>'
             . '<p><code>[seo_analyzer]</code></p>'
             . '<p>Options: <code>title="Free SEO audit"</code> changes the heading. <code>title=""</code> leaves the heading out when the page already has one. '
-            . '<code>heading_level="3"</code> sets the heading level (2 to 5).</p>'
+            . '<code>heading_level="3"</code> sets the heading level (2 to 5). '
+            . '<code>align="wide"</code> or <code>align="full"</code> asks a block theme for its wide or full width.</p>'
             . '<p>The tool needs no theme changes. It fills the width of the place you put it in.</p></div>';
     }
 

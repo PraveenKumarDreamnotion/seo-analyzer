@@ -37,7 +37,7 @@ final class Shortcode
     {
         // popup, comparison, nlp and competitor are accepted so that existing pages do not break. They do nothing.
         $atts = shortcode_atts(
-            ['title' => self::DEFAULT_NAME, 'heading_level' => '2', 'popup' => '', 'comparison' => '', 'nlp' => '', 'competitor' => ''],
+            ['title' => self::DEFAULT_NAME, 'heading_level' => '2', 'align' => '', 'popup' => '', 'comparison' => '', 'nlp' => '', 'competitor' => ''],
             $atts,
             'seo_analyzer'
         );
@@ -46,6 +46,9 @@ final class Shortcode
         if ($level < 2 || $level > 5) {
             $level = 2;
         }
+        // align="wide" or "full" adds the standard WordPress class, so a block theme gives the tool its wide or full width.
+        $align = strtolower(trim((string) $atts['align']));
+        $class = 'halo-audit' . (in_array($align, ['wide', 'full'], true) ? ' align' . $align : '');
         $id = wp_unique_id('halo-audit-');
 
         self::registerAssets();
@@ -59,7 +62,7 @@ final class Shortcode
 
         ob_start();
         ?>
-        <section class="halo-audit" id="<?php echo esc_attr($id); ?>" data-state="idle" data-heading-level="<?php echo esc_attr((string) $level); ?>" <?php echo $name; // phpcs:ignore WordPress.Security.EscapeOutput -- built from escaped parts ?>>
+        <section class="<?php echo esc_attr($class); ?>" id="<?php echo esc_attr($id); ?>" data-state="idle" data-heading-level="<?php echo esc_attr((string) $level); ?>" <?php echo $name; // phpcs:ignore WordPress.Security.EscapeOutput -- built from escaped parts ?>>
             <?php if ($title !== '') : ?>
             <h<?php echo (int) $level; ?> class="halo-audit__title" id="<?php echo esc_attr($id); ?>-title"><?php echo esc_html($title); ?></h<?php echo (int) $level; ?>>
             <?php endif; ?>
