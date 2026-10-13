@@ -10,6 +10,13 @@ final class Plugin
 {
     public static function boot(): void
     {
+        Installer::maybeUpgrade();
+        add_action(Installer::CRON_HOOK, static function (): void {
+            (new ReportStore())->purgeUnverified();
+        });
+        register_deactivation_hook(SEO_ANALYZER_PLUGIN_FILE, static function (): void {
+            wp_clear_scheduled_hook(Installer::CRON_HOOK);
+        });
     }
 
     public static function http(): HttpClient
