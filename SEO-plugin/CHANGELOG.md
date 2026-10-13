@@ -17,8 +17,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The PDF is built on the server from the stored report.
 - Admin reports list is paginated. Lead export is one CSV.
 - Needs PHP 8.0 and WordPress 6.2.
+- The widget needs no theme code. It lays itself out from the width of the place it is put in, and keeps its state on its own root element (`data-state`, `halo-audit:state` event).
+- Without a PageSpeed key the speed test is skipped. Speed shows "Not measured".
+- The user agent names the site that runs the plugin.
 
 ### Added
+- Shortcode options `title=""`, `heading_level` and `align`.
+- Labels on every field, live status messages, and colours that meet 4.5:1 contrast.
+- An admin notice when a verification email cannot be sent.
+- A notice when a needed PHP extension is missing.
+- `bin/build-zip.sh` builds an installable ZIP with the production packages inside.
 - AI-readiness group: AI crawler access, llms.txt, schema types, FAQ schema.
 - Limits on audits, email codes and downloads.
 - A slot for the live AI visibility scan.
