@@ -5,3 +5,5 @@ node_modules/
 .env.*
 *.zip
 content-analysis-*.json
+.DS_Store
+.phpunit.result.cache
