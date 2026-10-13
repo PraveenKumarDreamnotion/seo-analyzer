@@ -41,6 +41,7 @@ find "$fonts" -type f ! -name 'DejaVu*' -delete
 
 # Not needed at run time.
 find "$work/seo-analyzer/vendor" -type d \( -name tests -o -name Tests -o -name test -o -name docs -o -name .github \) -prune -exec rm -rf {} +
+find "$work/seo-analyzer/vendor" -type f \( -name 'phpunit.xml*' -o -name '.php-cs-fixer*' -o -name 'phpstan*.neon*' \) -delete
 find "$work/seo-analyzer" \( -name .DS_Store -o -name .gitignore -o -name .gitattributes -o -name '*.md' -path '*/vendor/*' \) -type f -delete
 
 mkdir -p "$out"
