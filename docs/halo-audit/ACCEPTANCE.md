@@ -139,9 +139,13 @@ The widget was changed so that it needs no theme code. Built as `halo-audit-2.0.
 | Text contrast | both | Lowest measured 5.83:1 |
 | First interaction is the submit, with delayed scripts | DevKinsta | Pass: one request, no page reload |
 | PDF with the reduced font set | wp-env, direct render | Pass |
-| Delete from the Plugins screen (`wp plugin uninstall`) | wp-env | Pass: tables, options and the scheduled event removed |
+| Delete from the Plugins screen (`wp plugin uninstall`), only copy | wp-env | Pass: tables, options and the scheduled event removed |
+| Delete a spare copy while another copy is active | wp-env | Pass: tables and options kept |
+| Empty submit while a report is on the page | wp-env | Pass: the report and its state stay |
 | Unit tests | PHP 8.0.30 | 279 pass |
 | Integration tests | wp-env | 68 pass (was 52) |
+
+Updating a site that runs 1.x (this includes production): replace the files inside the existing plugin folder. Do not delete the 1.x copy from the Plugins screen. The 1.x `uninstall.php` drops the results table, which holds the leads. The 2.0 `uninstall.php` keeps the data while another active copy uses it, but that guard does not exist in 1.x.
 
 Not tested in this round:
 

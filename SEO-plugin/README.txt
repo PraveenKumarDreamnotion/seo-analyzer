@@ -46,6 +46,8 @@ If the upload is refused because the file is too large (the ZIP is about 7 MB), 
 
 Updating a site that already runs this plugin: replace the files in the folder the plugin is already in. Do not upload the ZIP as a second plugin. If two copies are active, only the first one loads.
 
+Coming from version 1.x: never delete the 1.x copy from the Plugins screen. Deleting it drops the table that holds your reports and leads. Replace its files instead, and export the leads first to be safe.
+
 == Settings ==
 
 SEO Analyzer > Settings. Every setting is optional.
