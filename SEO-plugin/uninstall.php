@@ -14,6 +14,7 @@ foreach ([
     'halo_audit_psi_key',
     'halo_audit_scan_url',
     'halo_audit_scan_secret',
+    'halo_audit_mail_failed_at',
     'seo_analyzer_brevo_api_key',
     'seo_analyzer_sender_email',
     'seo_analyzer_openai_api_key',

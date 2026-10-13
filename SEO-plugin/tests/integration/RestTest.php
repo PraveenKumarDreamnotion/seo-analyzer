@@ -154,6 +154,36 @@ class Halo_Rest_Test extends WP_UnitTestCase
         $this->assertArrayNotHasKey('checks', $data);
     }
 
+    public function test_without_a_key_speed_is_not_measured_and_google_is_not_called(): void
+    {
+        delete_option('halo_audit_psi_key');
+        $calls = 0;
+        add_filter('pre_http_request', static function ($pre, $args, $url) use (&$calls) {
+            if (strpos($url, 'googleapis.com') !== false) {
+                $calls++;
+            }
+            return $pre;
+        }, 5, 3);
+
+        $first = $this->analyze();
+        $this->assertTrue($first['speed_done']);
+        $this->assertNull($first['summary']['groups']['speed']['score']);
+        $this->assertSame(3, $first['summary']['groups']['speed']['not_measured']);
+
+        $after = $this->call('POST', '/speed', ['report_id' => $first['report_id']])->get_data();
+        $this->assertSame($first['summary'], $after['summary']);
+        $this->assertSame(0, $calls);
+    }
+
+    public function test_speed_can_be_switched_on_without_a_key_by_filter(): void
+    {
+        delete_option('halo_audit_psi_key');
+        add_filter('halo_audit_speed_enabled', '__return_true');
+        $first = $this->analyze();
+        $this->assertFalse($first['speed_done']);
+        $this->assertSame(100, $this->call('POST', '/speed', ['report_id' => $first['report_id']])->get_data()['summary']['groups']['speed']['score']);
+    }
+
     public function test_unknown_report_is_404(): void
     {
         $this->assertSame(404, $this->call('POST', '/speed', ['report_id' => str_repeat('a', 32)])->get_status());

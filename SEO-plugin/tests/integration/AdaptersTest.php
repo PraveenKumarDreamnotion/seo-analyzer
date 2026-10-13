@@ -26,6 +26,13 @@ class Halo_Adapters_Test extends WP_UnitTestCase
         $this->assertStringContainsString('HaloAudit', $seen['user-agent']);
     }
 
+    public function test_user_agent_names_this_site_and_can_be_filtered(): void
+    {
+        $this->assertSame('Mozilla/5.0 (compatible; HaloAudit/2.0; +' . home_url('/') . ')', WpHttpClient::userAgent());
+        add_filter('halo_audit_user_agent', static fn() => 'CustomBot/1.0');
+        $this->assertSame('CustomBot/1.0', WpHttpClient::userAgent());
+    }
+
     public function test_http_client_turns_wp_error_into_error_response(): void
     {
         add_filter('pre_http_request', static fn() => new WP_Error('http_request_failed', 'cURL error 28'));

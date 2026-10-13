@@ -44,6 +44,32 @@ class Halo_Gate_Test extends WP_UnitTestCase
         $this->assertStringNotContainsString($this->code, $row['code_hash']);
     }
 
+    public function test_failed_delivery_is_recorded_without_the_code_or_the_address(): void
+    {
+        remove_all_filters('halo_audit_send_code');
+        add_filter('halo_audit_send_code', function ($sent, $email, $code) {
+            $this->code = $code;
+            return false;
+        }, 10, 3);
+
+        $result = $this->gate->send('asha@example.com', '203.0.113.5');
+        $this->assertSame('halo_mail', $result->get_error_code());
+
+        $stored = get_option(Gate::MAIL_FAILURE_OPTION);
+        $this->assertIsInt($stored);
+        $this->assertGreaterThan(time() - 60, $stored);
+        $raw = (string) maybe_serialize($stored);
+        $this->assertStringNotContainsString($this->code, $raw);
+        $this->assertStringNotContainsString('asha', $raw);
+    }
+
+    public function test_a_later_delivery_clears_the_failure_record(): void
+    {
+        update_option(Gate::MAIL_FAILURE_OPTION, time() - 3600, false);
+        $this->assertTrue($this->gate->send('asha@example.com', '203.0.113.5'));
+        $this->assertFalse(get_option(Gate::MAIL_FAILURE_OPTION));
+    }
+
     public function test_invalid_email_is_rejected(): void
     {
         $this->assertSame('halo_email', $this->gate->send('not-an-email', '203.0.113.5')->get_error_code());

@@ -44,6 +44,18 @@ class Halo_Pdf_Test extends WP_UnitTestCase
         $this->assertStringNotContainsString('—', $html);
     }
 
+    public function test_footer_can_be_changed_or_removed_and_is_escaped(): void
+    {
+        $this->assertStringContainsString('<p class="foot">Made with Halo Audit', Pdf::html($this->report()));
+
+        add_filter('halo_audit_pdf_footer', static fn() => 'Report by <Example> School');
+        $this->assertStringContainsString('<p class="foot">Report by &lt;Example&gt; School</p>', Pdf::html($this->report()));
+
+        remove_all_filters('halo_audit_pdf_footer');
+        add_filter('halo_audit_pdf_footer', '__return_empty_string');
+        $this->assertStringNotContainsString('class="foot"', Pdf::html($this->report()));
+    }
+
     public function test_render_returns_pdf_bytes(): void
     {
         $this->assertStringStartsWith('%PDF-', Pdf::render($this->report()));

@@ -95,6 +95,33 @@ class Halo_Admin_Test extends WP_UnitTestCase
         $this->assertSame('', sanitize_option('seo_analyzer_sender_email', 'not an email'));
     }
 
+    public function test_mail_failure_notice_shows_only_after_a_failed_send(): void
+    {
+        delete_option(\HaloAudit\Wp\Gate::MAIL_FAILURE_OPTION);
+        $this->assertSame('', Admin::mailNotice());
+
+        update_option(\HaloAudit\Wp\Gate::MAIL_FAILURE_OPTION, 1700000000, false);
+        $html = Admin::mailNotice();
+        $this->assertStringContainsString('notice-error', $html);
+        $this->assertStringContainsString('could not send', $html);
+        $this->assertStringContainsString(Settings::PAGE, $html);
+    }
+
+    public function test_settings_screen_says_what_is_optional_and_how_mail_is_sent(): void
+    {
+        require_once ABSPATH . 'wp-admin/includes/template.php';
+        wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
+        Settings::register();
+        ob_start();
+        Settings::page();
+        $html = ob_get_clean();
+
+        $this->assertStringContainsString('Every setting is optional', $html);
+        $this->assertStringContainsString('WordPress mail', $html);
+        $this->assertStringContainsString('Not used in this version', $html);
+        $this->assertStringNotContainsStringIgnoringCase('openai', $html);
+    }
+
     public function test_old_admin_class_is_gone(): void
     {
         $this->assertFalse(class_exists('Seo_Analyzer_Admin'));

@@ -7,7 +7,7 @@ use HaloAudit\Url;
 final class Pdf
 {
     private const STATUS_LABELS = ['pass' => 'Pass', 'warn' => 'Improve', 'fail' => 'Fix', 'not_measured' => 'Not measured'];
-    private const STATUS_COLOURS = ['pass' => '#2e7d32', 'warn' => '#b26a00', 'fail' => '#c62828', 'not_measured' => '#6b6b6b'];
+    private const STATUS_COLOURS = ['pass' => '#2e7d32', 'warn' => '#8a5200', 'fail' => '#c62828', 'not_measured' => '#6b6b6b'];
 
     public static function filename(array $report): string
     {
@@ -54,7 +54,10 @@ final class Pdf
             $out .= '</table>';
         }
 
-        $out .= '<p class="foot">Made with Halo Audit by Thrivemattic. thrivemattic.com</p>';
+        $footer = trim((string) apply_filters('halo_audit_pdf_footer', 'Made with Halo Audit by Thrivemattic. thrivemattic.com', $report));
+        if ($footer !== '') {
+            $out .= '<p class="foot">' . $e($footer) . '</p>';
+        }
         return $out;
     }
 

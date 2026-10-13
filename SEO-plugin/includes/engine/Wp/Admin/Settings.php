@@ -8,11 +8,11 @@ final class Settings
 
     /** option => [label, input type, help] */
     private const FIELDS = [
-        'halo_audit_psi_key' => ['Google PageSpeed API key', 'password', 'Used for the Speed group. Without a key Google allows only a few tests per day.'],
-        'seo_analyzer_brevo_api_key' => ['Brevo API key', 'password', 'Sends the email code. Without a key WordPress mail is used.'],
-        'seo_analyzer_sender_email' => ['Sender email', 'email', 'The From address of the email code.'],
-        'halo_audit_scan_url' => ['Scan server URL', 'url', 'For the live AI visibility scan. Leave empty until the scan server is ready.'],
-        'halo_audit_scan_secret' => ['Scan server secret', 'password', 'Shared secret for the scan server.'],
+        'halo_audit_psi_key' => ['Google PageSpeed API key (optional)', 'password', 'Turns on the Speed group. Without a key the speed test is skipped, Speed shows "Not measured" and the score is worked out from the other groups. The key stays on the server.'],
+        'seo_analyzer_brevo_api_key' => ['Brevo API key (optional)', 'password', 'Sends the 6-digit code through Brevo. Without a key the code is sent with WordPress mail, so the mail setup of this site is used.'],
+        'seo_analyzer_sender_email' => ['Sender email (optional)', 'email', 'The From address when the code is sent through Brevo. Empty means the site admin address.'],
+        'halo_audit_scan_url' => ['Scan server URL', 'url', 'Not used in this version. Reserved for the live AI visibility scan.'],
+        'halo_audit_scan_secret' => ['Scan server secret', 'password', 'Not used in this version.'],
     ];
 
     public static function register(): void
@@ -53,7 +53,12 @@ final class Settings
         if (!current_user_can('manage_options')) {
             return;
         }
-        echo '<div class="wrap"><h1>' . esc_html(get_admin_page_title()) . '</h1><form action="options.php" method="post">';
+        echo '<div class="wrap"><h1>' . esc_html(get_admin_page_title()) . '</h1>';
+        echo '<p>Every setting is optional. The audit works as soon as the plugin is active and <code>[seo_analyzer]</code> is on a page.</p>';
+        echo '<p>To unlock the full findings a visitor confirms an email address with a 6-digit code. '
+            . 'That code is sent through Brevo when a Brevo key is saved below, and with WordPress mail otherwise. '
+            . 'Make sure this site can send email, or visitors cannot unlock their report.</p>';
+        echo '<form action="options.php" method="post">';
         settings_fields(self::GROUP);
         do_settings_sections(self::PAGE);
         submit_button();

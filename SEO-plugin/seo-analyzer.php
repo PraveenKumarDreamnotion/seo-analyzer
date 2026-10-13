@@ -15,6 +15,11 @@ if (!defined('WPINC')) {
     die;
 }
 
+// A second copy of the plugin in another folder must not load on top of the first.
+if (defined('SEO_ANALYZER_VERSION')) {
+    return;
+}
+
 define('SEO_ANALYZER_VERSION', '2.0.0');
 define('SEO_ANALYZER_PLUGIN_FILE', __FILE__);
 define('SEO_ANALYZER_PLUGIN_DIR', plugin_dir_path(__FILE__));
@@ -26,6 +31,16 @@ if (!file_exists(SEO_ANALYZER_PLUGIN_DIR . 'vendor/autoload.php')) {
     });
     return;
 }
+
+$seo_analyzer_missing = array_values(array_filter(['dom', 'mbstring', 'openssl', 'gd'], static fn(string $ext): bool => !extension_loaded($ext)));
+if ($seo_analyzer_missing !== []) {
+    add_action('admin_notices', static function () use ($seo_analyzer_missing) {
+        echo '<div class="notice notice-error"><p>SEO Analyzer is switched off. This server lacks the PHP extension(s): <code>'
+            . esc_html(implode(', ', $seo_analyzer_missing)) . '</code>. Ask your host to turn them on.</p></div>';
+    });
+    return;
+}
+unset($seo_analyzer_missing);
 
 require_once SEO_ANALYZER_PLUGIN_DIR . 'vendor/autoload.php';
 require_once SEO_ANALYZER_PLUGIN_DIR . 'includes/class-seo-analyzer-mailer.php';

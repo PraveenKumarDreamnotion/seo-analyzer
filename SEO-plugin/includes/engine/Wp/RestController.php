@@ -46,6 +46,12 @@ final class RestController
         return (string) apply_filters('halo_audit_client_ip', $ip);
     }
 
+    /** The speed test runs only when a PageSpeed key is saved. Without one Google is not called. */
+    public static function speedEnabled(): bool
+    {
+        return (bool) apply_filters('halo_audit_speed_enabled', (string) get_option('halo_audit_psi_key', '') !== '');
+    }
+
     /** @return true|\WP_Error A WP_Error with an explicit 403: a bare false gives 401 to logged-out visitors. */
     public function nonceOk(\WP_REST_Request $request)
     {
@@ -91,6 +97,11 @@ final class RestController
             return new \WP_Error('halo_' . $out['code'], $out['message'], ['status' => 422]);
         }
 
+        if (!self::speedEnabled()) {
+            // No key: Speed stays "Not measured" and the browser has no speed request to make.
+            $out['report']['speed_done'] = true;
+        }
+
         $key = $this->store->create($out['report']);
         $lead = $this->gate->current();
         if ($lead !== null) {
@@ -114,7 +125,9 @@ final class RestController
             if (function_exists('set_time_limit')) {
                 @set_time_limit(120);
             }
-            $psi = (new PsiClient(Plugin::http(), (string) get_option('halo_audit_psi_key', '')))->run($report['url']);
+            $psi = self::speedEnabled()
+                ? (new PsiClient(Plugin::http(), (string) get_option('halo_audit_psi_key', '')))->run($report['url'])
+                : null;
             $report = Analyzer::applySpeed($report, $psi);
             $this->store->update($row['key'], $report);
         }

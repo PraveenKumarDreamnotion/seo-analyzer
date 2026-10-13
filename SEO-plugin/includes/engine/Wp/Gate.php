@@ -7,6 +7,7 @@ final class Gate
     public const UNLOCK_SECONDS = 30 * DAY_IN_SECONDS;
     public const CODE_SECONDS = 15 * MINUTE_IN_SECONDS;
     public const MAX_ATTEMPTS = 5;
+    public const MAIL_FAILURE_OPTION = 'halo_audit_mail_failed_at';
 
     private ReportStore $store;
 
@@ -41,7 +42,15 @@ final class Gate
         if ($sent === null) {
             $sent = \Seo_Analyzer_Mailer::send_email($email, 'Your Halo Audit code', "Your Halo Audit code is: $code\n\nThe code is valid for 15 minutes.");
         }
-        return $sent ? true : new \WP_Error('halo_mail', 'We could not send the code. Try again.', ['status' => 502]);
+        if (!$sent) {
+            // Only the time is kept. The message holds the code and the address, so neither is stored or logged.
+            update_option(self::MAIL_FAILURE_OPTION, time(), false);
+            return new \WP_Error('halo_mail', 'We could not send the code. Try again.', ['status' => 502]);
+        }
+        if (get_option(self::MAIL_FAILURE_OPTION) !== false) {
+            delete_option(self::MAIL_FAILURE_OPTION);
+        }
+        return true;
     }
 
     /** @return string|\WP_Error the unlock cookie token */

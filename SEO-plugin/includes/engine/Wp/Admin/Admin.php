@@ -1,6 +1,7 @@
 <?php
 namespace HaloAudit\Wp\Admin;
 
+use HaloAudit\Wp\Gate;
 use HaloAudit\Wp\Installer;
 
 final class Admin
@@ -13,6 +14,28 @@ final class Admin
         add_action('admin_menu', [self::class, 'menu']);
         add_action('admin_init', [Settings::class, 'register']);
         add_action('admin_post_' . self::EXPORT_ACTION, [self::class, 'export']);
+        add_action('admin_notices', [self::class, 'printMailNotice']);
+    }
+
+    /** Shown on this plugin's screens after a verification email could not be sent. A later successful send clears it. */
+    public static function mailNotice(): string
+    {
+        $failedAt = (int) get_option(Gate::MAIL_FAILURE_OPTION, 0);
+        if ($failedAt <= 0) {
+            return '';
+        }
+        return '<div class="notice notice-error"><p><strong>Halo Audit could not send a verification email</strong> on '
+            . esc_html(wp_date(get_option('date_format') . ' ' . get_option('time_format'), $failedAt))
+            . '. Visitors cannot unlock their report until email works. Check the Brevo key and sender on the '
+            . '<a href="' . esc_url(admin_url('admin.php?page=' . Settings::PAGE)) . '">settings page</a>, or the mail setup of this site.</p></div>';
+    }
+
+    public static function printMailNotice(): void
+    {
+        $screen = function_exists('get_current_screen') ? get_current_screen() : null;
+        if ($screen && strpos((string) $screen->id, 'seo-analyzer') !== false && current_user_can(self::CAPABILITY)) {
+            echo self::mailNotice(); // phpcs:ignore WordPress.Security.EscapeOutput -- escaped in mailNotice()
+        }
     }
 
     public static function menu(): void
@@ -25,7 +48,10 @@ final class Admin
     public static function homePage(): void
     {
         echo '<div class="wrap"><h1>SEO Analyzer</h1><p>Add the tool to any page with this shortcode:</p>'
-            . '<p><code>[seo_analyzer title="Halo Audit"]</code></p></div>';
+            . '<p><code>[seo_analyzer]</code></p>'
+            . '<p>Options: <code>title="Free SEO audit"</code> changes the heading. <code>title=""</code> leaves the heading out when the page already has one. '
+            . '<code>heading_level="3"</code> sets the heading level (2 to 5).</p>'
+            . '<p>The tool needs no theme changes. It fills the width of the place you put it in.</p></div>';
     }
 
     public static function reportsPage(): void
