@@ -27,6 +27,8 @@ final class Plugin
             $scan = apply_filters('halo_audit_scan_client', new NullScanClient());
             (new RestController(self::store(), self::gate(), $scan))->register();
         });
+
+        Shortcode::register();
     }
 
     public static function store(): ReportStore
