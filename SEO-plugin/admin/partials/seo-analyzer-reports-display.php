@@ -35,7 +35,7 @@ if (!current_user_can('manage_options')) {
                     <td><?php echo esc_html($report['competitor_overall_score']); ?></td>
                     <td><?php echo esc_html($report['created_at']); ?></td>
                     <td>
-                        <a href="<?php echo admin_url('admin.php?page=seo-analyzer-reports&action=download&id=' . $report['id']); ?>">Download</a>
+                        <a href="<?php echo esc_url(wp_nonce_url(admin_url('admin.php?page=seo-analyzer-reports&action=download&id=' . intval($report['id'])), 'seo_analyzer_report_' . intval($report['id']))); ?>">Download</a>
                     </td>
                 </tr>
             <?php endforeach; ?>

@@ -44,8 +44,6 @@ class Seo_Analyzer_Mailer {
             'textContent' => $message
         );
 
-        error_log('SEO Analyzer Brevo API Request: ' . print_r($body, true));
-
         $response = wp_remote_post($url, array(
             'headers' => array(
                 'accept' => 'application/json',

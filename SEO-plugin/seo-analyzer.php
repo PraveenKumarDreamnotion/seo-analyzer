@@ -91,32 +91,6 @@ function seo_analyzer_register_shortcode() {
 }
 add_action('init', 'seo_analyzer_register_shortcode');
 
-/**
- * Remove all options and transients related to the plugin
- */
-function seo_analyzer_cleanup_database() {
-    global $wpdb;
-    
-    // Remove options
-    delete_option('seo_analyzer_menu_created');
-    delete_option('seo_analyzer_pagespeed_api_key');
-    
-    // Remove capabilities
-    $role = get_role('administrator');
-    if ($role) {
-        $role->remove_cap('seo_analyzer_access');
-    }
-    
-    // Remove user meta data
-    $wpdb->query("DELETE FROM {$wpdb->usermeta} WHERE meta_key LIKE '%seo_analyzer%'");
-    
-    // Clear transients
-    $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '%transient%seo_analyzer%'");
-}
-
-// Uncomment the following line to run the cleanup, then comment it out again after use
-add_action('admin_init', 'seo_analyzer_cleanup_database');
-
 // Update this function at the end of the file
 function seo_analyzer_integrate_addons() {
     if (seo_analyzer_is_addon_openai_active()) {
@@ -132,62 +106,6 @@ function seo_analyzer_activate() {
     $admin = new Seo_Analyzer_Admin('seo-analyzer', '1.0.0');
     $admin->create_results_table();
     $admin->create_api_key_table();
-}
-
-add_action('wp_ajax_verify_otp_and_save_data', 'seo_analyzer_verify_otp_and_save_data');
-add_action('wp_ajax_nopriv_verify_otp_and_save_data', 'seo_analyzer_verify_otp_and_save_data');
-
-function seo_analyzer_verify_otp_and_save_data() {
-    check_ajax_referer('seo_analyzer_nonce', 'nonce');
-
-    error_log('verify_otp_and_save_data function called');
-
-    $name = sanitize_text_field($_POST['name']);
-    $email = sanitize_email($_POST['email']);
-    $otp = sanitize_text_field($_POST['otp']);
-    $widget_id = sanitize_text_field($_POST['widget_id']);
-    $url = isset($_POST['url']) ? esc_url_raw($_POST['url']) : '';
-    $keyword = isset($_POST['keyword']) ? sanitize_text_field($_POST['keyword']) : '';
-    $competitor_url = isset($_POST['competitor_url']) ? esc_url_raw($_POST['competitor_url']) : '';
-    $results = json_decode(stripslashes($_POST['results']), true);
-    $competitor_results = isset($_POST['competitor_results']) ? json_decode(stripslashes($_POST['competitor_results']), true) : null;
-    $competitor_overall_score = isset($_POST['competitor_overall_score']) ? floatval($_POST['competitor_overall_score']) : null;
-
-    error_log('Received data: ' . print_r($_POST, true));
-
-    // Verify OTP
-    $otp_verified = verify_otp($email, $otp, $widget_id);
-
-    if ($otp_verified) {
-        error_log('OTP verified successfully');
-        error_log('Full results: ' . print_r($results, true));
-        error_log('Competitor results: ' . print_r($competitor_results, true));
-        error_log('Competitor overall score: ' . $competitor_overall_score);
-
-        $admin = new Seo_Analyzer_Admin('seo-analyzer', '1.0.0');
-        
-        $report_id = $admin->save_report(
-            $name,
-            $email,
-            $url,
-            $keyword,
-            $competitor_url,
-            $results,
-            $competitor_results,
-            $competitor_overall_score
-        );
-
-        if ($report_id === false) {
-            error_log('Failed to save data to the database');
-            wp_send_json_error('Failed to save data to the database');
-        } else {
-            error_log('Data saved successfully. Report ID: ' . $report_id);
-            wp_send_json_success(array('message' => 'Data saved successfully', 'report_id' => $report_id));
-        }
-    } else {
-        error_log('Invalid OTP');
-        wp_send_json_error('Invalid OTP');
-    }
 }
 
 // Add this line to include Composer's autoloader
