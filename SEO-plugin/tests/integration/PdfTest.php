@@ -1,0 +1,70 @@
+<?php
+use HaloAudit\Wp\Gate;
+use HaloAudit\Wp\Pdf;
+use HaloAudit\Wp\Plugin;
+use HaloAudit\Wp\RestController;
+
+class Halo_Pdf_Test extends WP_UnitTestCase
+{
+    private function report(): array
+    {
+        return [
+            'engine_version' => '2.0.0', 'url' => 'https://example.com/a?x=<script>', 'keyword' => '<b>mba</b>', 'created_at' => 1760000000,
+            'is_education' => false, 'speed_done' => true,
+            'checks' => [
+                ['id' => 'title_length', 'group' => 'onpage', 'severity' => 3, 'title' => 'Title length', 'why' => 'Why.', 'status' => 'fail', 'evidence' => '<img src="http://evil.example/x.png">', 'message' => 'Fix it.'],
+                ['id' => 'https', 'group' => 'technical', 'severity' => 3, 'title' => 'Secure connection', 'why' => 'Why.', 'status' => 'pass', 'evidence' => 'Served over HTTPS', 'message' => ''],
+            ],
+            'summary' => ['groups' => [
+                'onpage' => ['score' => 0, 'pass' => 0, 'warn' => 0, 'fail' => 1, 'not_measured' => 0],
+                'technical' => ['score' => 100, 'pass' => 1, 'warn' => 0, 'fail' => 0, 'not_measured' => 0],
+                'ai' => ['score' => null, 'pass' => 0, 'warn' => 0, 'fail' => 0, 'not_measured' => 0],
+                'speed' => ['score' => null, 'pass' => 0, 'warn' => 0, 'fail' => 0, 'not_measured' => 3],
+            ], 'overall' => 40, 'grade' => 'D'],
+        ];
+    }
+
+    public function test_html_escapes_everything_that_came_from_the_page(): void
+    {
+        $html = Pdf::html($this->report());
+        $this->assertStringNotContainsString('<img src="http://evil.example', $html);
+        $this->assertStringContainsString('&lt;img src=&quot;http://evil.example/x.png&quot;&gt;', $html);
+        $this->assertStringNotContainsString('<b>mba</b>', $html);
+        $this->assertStringNotContainsString('<script>', $html);
+    }
+
+    public function test_html_shows_score_grade_groups_and_not_measured(): void
+    {
+        $html = Pdf::html($this->report());
+        $this->assertStringContainsString('40', $html);
+        $this->assertStringContainsString('Grade D', $html);
+        $this->assertStringContainsString('On-page for your keyword', $html);
+        $this->assertStringContainsString('Not measured', $html);
+        $this->assertStringContainsString('Fix it.', $html);
+        $this->assertStringNotContainsString('—', $html);
+    }
+
+    public function test_render_returns_pdf_bytes(): void
+    {
+        $this->assertStringStartsWith('%PDF-', Pdf::render($this->report()));
+    }
+
+    public function test_filename_is_safe(): void
+    {
+        $this->assertSame('halo-audit-example.com.pdf', Pdf::filename($this->report()));
+    }
+
+    public function test_pdf_route_is_refused_without_unlock(): void
+    {
+        global $wp_rest_server;
+        $wp_rest_server = new WP_REST_Server();
+        do_action('rest_api_init');
+
+        $key = Plugin::store()->create($this->report());
+        $request = new WP_REST_Request('GET', '/' . RestController::NS . '/report/' . $key . '/pdf');
+        $request->set_header('X-Halo-Nonce', wp_create_nonce(RestController::NONCE_ACTION));
+        unset($_COOKIE[Gate::COOKIE]);
+
+        $this->assertSame(403, rest_get_server()->dispatch($request)->get_status());
+    }
+}

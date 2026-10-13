@@ -34,6 +34,7 @@ final class RestController
         register_rest_route(self::NS, '/gate/send', ['methods' => 'POST', 'callback' => [$this, 'gateSend'], 'permission_callback' => $nonce]);
         register_rest_route(self::NS, '/gate/verify', ['methods' => 'POST', 'callback' => [$this, 'gateVerify'], 'permission_callback' => $nonce]);
         register_rest_route(self::NS, '/report/' . $id, ['methods' => 'GET', 'callback' => [$this, 'report'], 'permission_callback' => $unlocked]);
+        register_rest_route(self::NS, '/report/' . $id . '/pdf', ['methods' => 'GET', 'callback' => [$this, 'pdf'], 'permission_callback' => $unlocked]);
         register_rest_route(self::NS, '/scan', ['methods' => 'POST', 'callback' => [$this, 'scanStart'], 'permission_callback' => $unlocked]);
         register_rest_route(self::NS, '/scan/(?P<id>[A-Za-z0-9_-]{1,64})', ['methods' => 'GET', 'callback' => [$this, 'scanStatus'], 'permission_callback' => $unlocked]);
     }
@@ -166,6 +167,25 @@ final class RestController
             $this->store->attachLead($row['key'], $lead['name'], $lead['email']);
         }
         return new \WP_REST_Response(ReportView::full($row['report']) + ['report_id' => $row['key'], 'unlocked' => true]);
+    }
+
+    public function pdf(\WP_REST_Request $request)
+    {
+        $row = $this->store->get((string) $request['id']);
+        if ($row === null) {
+            return self::notFound();
+        }
+        if (!RateLimiter::allow('pdf', self::clientIp(), 20, HOUR_IN_SECONDS)) {
+            return new \WP_Error('halo_rate', 'Too many downloads. Try again later.', ['status' => 429]);
+        }
+        $bytes = Pdf::render($row['report']);
+
+        nocache_headers();
+        header('Content-Type: application/pdf');
+        header('Content-Disposition: attachment; filename="' . Pdf::filename($row['report']) . '"');
+        header('Content-Length: ' . strlen($bytes));
+        echo $bytes; // phpcs:ignore WordPress.Security.EscapeOutput -- binary PDF
+        exit;
     }
 
     public function scanStart(\WP_REST_Request $request)
