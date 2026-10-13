@@ -125,7 +125,7 @@ Not done. That includes the client-IP check (Review Focus item 5).
 
 1. The two Thrivemattic audits, the Halo comparison, the pull request and the staging run.
 2. One end-to-end audit of an education site.
-3. Tool pages `/ai-tools/seo-analysis/` and `/ai-tools/competitor-analysis/`: the widget works, but the theme's page script and page styles still target the old widget markup. After a run the page does not switch to the full-width report layout, the widget title repeats the page heading, and the "No signup" line is still on the page. These are theme and page-copy changes outside this repo.
+3. Tool pages `/ai-tools/seo-analysis/` and `/ai-tools/competitor-analysis/`: the layout and the repeated title were fixed on the local site on 2026-10-13 in the child theme and in `tm-blocks`. Those files are outside this repo and must ship with the plugin; see `THEME-INTEGRATION.md`. The "No signup" lines are still on both pages and are a copy decision.
 4. The competitor page still carries the shortcode with `comparison` and `competitor`. They are ignored, so the page shows the single-page audit.
 5. Deploy steps in `README.md`, including the add-on removal on each site.
 6. WP Rocket "Remove Unused CSS" is active on this site. Most `.halo-audit__*` elements are created by the script after load, so their rules may be stripped on a cached page. Check on staging, and safelist `halo-audit` or exclude `halo-audit.css` if needed. The local browser run showed the widget styled, but it was not checked against a warmed cache.
