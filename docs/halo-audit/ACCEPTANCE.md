@@ -14,6 +14,14 @@ Scope of this run: local only. Nothing was pushed, merged or deployed. No reques
 | Composer | 2.10.3 in the `composer:2` container, platform pinned to PHP 8.0.30 |
 | mPDF | 8.3.1 |
 
+What ran on which PHP version:
+
+- **PHP 8.0.30:** the unit suite (engine only), the lint run, a load of all 72 engine and WordPress-layer class files outside WordPress, and one direct mPDF render. The WordPress layer was not exercised inside WordPress on 8.0.
+- **PHP 8.1.34:** the integration suite and the wp-env end-to-end run.
+- **PHP 8.3.3:** the end-to-end and browser runs on the DevKinsta site.
+
+Outside calls made by this run: page fetches of `example.com` and `www.ashoka.edu.in` (both named in the plan), and five PageSpeed Insights requests for `example.com` with the local site's own key. No other outside service was called.
+
 ## Step 1: test suites
 
 | Suite | Command | Result |
@@ -38,7 +46,7 @@ Run on the wp-env site (`http://localhost:8888`) and on the local DevKinsta site
 
 Notes:
 
-- The Education extras could not be shown end to end, because the only education target in the plan refused the fetch. Detection and the four extras are covered by `tests/unit/EducationTest.php` (20 tests). This needs one audit of an education site that allows the `HaloAudit/2.0` user agent.
+- **The plan's criterion "both `ashoka.edu.in` pages show the Education extras" was not met.** The Education extras could not be shown end to end, because the only education target in the plan refused the fetch. Detection and the four extras are covered by `tests/unit/EducationTest.php` (20 tests). This needs one audit of an education site that allows the `HaloAudit/2.0` user agent.
 - With no PageSpeed key (wp-env), the Speed group read "Not measured" with three unmeasured checks and the overall score stayed at 47. An unmeasured group did not lower the score.
 - No page showed a PHP error. The PHP error log had no fatal error and no line from this plugin during the run.
 
@@ -120,3 +128,5 @@ Not done. That includes the client-IP check (Review Focus item 5).
 3. Tool pages `/ai-tools/seo-analysis/` and `/ai-tools/competitor-analysis/`: the widget works, but the theme's page script and page styles still target the old widget markup. After a run the page does not switch to the full-width report layout, the widget title repeats the page heading, and the "No signup" line is still on the page. These are theme and page-copy changes outside this repo.
 4. The competitor page still carries the shortcode with `comparison` and `competitor`. They are ignored, so the page shows the single-page audit.
 5. Deploy steps in `README.md`, including the add-on removal on each site.
+6. WP Rocket "Remove Unused CSS" is active on this site. Most `.halo-audit__*` elements are created by the script after load, so their rules may be stripped on a cached page. Check on staging, and safelist `halo-audit` or exclude `halo-audit.css` if needed. The local browser run showed the widget styled, but it was not checked against a warmed cache.
+7. In the browser run on `/ai-tools/seo-analysis/` the only failed request was the deliberate wrong-code `POST /gate/verify` (400). There were no script errors on either tool page.
