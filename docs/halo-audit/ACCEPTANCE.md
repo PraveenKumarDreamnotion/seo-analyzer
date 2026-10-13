@@ -121,6 +121,35 @@ Not done. That includes the client-IP check (Review Focus item 5).
 | Commits | Files were staged by path, not with `git add -A` | The repo holds untracked local notes |
 | mPDF | 8.3.1, up from 8.2.4 | `composer update` in Task 1 |
 
+## Stand-alone plugin check (2026-10-13)
+
+The widget was changed so that it needs no theme code. Built as `halo-audit-2.0.0.zip` with `bin/build-zip.sh` (684 files, about 7 MB, one `seo-analyzer/` folder, production Composer packages inside).
+
+| Check | Where | Result |
+|---|---|---|
+| ZIP installs through the WordPress installer and activates | wp-env, `wp plugin install <zip>` into a new `seo-analyzer` folder | Pass |
+| Form, audit, free view, email step, findings layout | wp-env, Twenty Twenty-Five 1.5, WordPress 7.1.3, PHP 8.1.34, plain permalinks | Pass at 1440, 1024, 768 and 390 px |
+| Same, on the local site with the theme patch | DevKinsta, GeneratePress child, PHP 8.3.3, WP Rocket minify and Delay JS on | Pass |
+| Same, with the three theme files served as they were before the patch | DevKinsta, page 917, files swapped in the test browser only | Pass. The report stays in the page's half-width column (583 px) |
+| Same, with both theme scripts blocked | DevKinsta, page 937 | Pass |
+| Two widgets on one page | wp-env | Pass: no shared ids, one request per submit, separate reports |
+| `title=""` and `align="wide"` | wp-env | Pass |
+| No speed request without a PageSpeed key | wp-env | Pass: 0 requests, Speed "Not measured", score unchanged |
+| "Send code" on a site with no mail transport | wp-env | Pass: visitor sees "We could not send the code", report stays locked, admin notice recorded |
+| Text contrast | both | Lowest measured 5.83:1 |
+| First interaction is the submit, with delayed scripts | DevKinsta | Pass: one request, no page reload |
+| PDF with the reduced font set | wp-env, direct render | Pass |
+| Delete from the Plugins screen (`wp plugin uninstall`) | wp-env | Pass: tables, options and the scheduled event removed |
+| Unit tests | PHP 8.0.30 | 279 pass |
+| Integration tests | wp-env | 68 pass (was 52) |
+
+Not tested in this round:
+
+- A real emailed code, the unlocked report over HTTP and the PDF download in a browser. The findings layout was drawn from stubbed answers in the test browser. A manual run on the local site had passed before this change.
+- The wp-admin screens in a browser. The admin tests in the integration suite pass.
+- Any theme other than the two above, any page builder, a WordPress install in a subfolder, and a warmed "Remove Unused CSS" cache.
+- The WordPress layer on PHP 8.0.
+
 ## Open items
 
 1. The two Thrivemattic audits, the Halo comparison, the pull request and the staging run.
