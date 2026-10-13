@@ -2,7 +2,7 @@
 
 Updated 2026-10-13.
 
-**The plugin does not need any theme code.** The form, the states, the report layout, the email step and the styles all belong to the plugin. It was run on Twenty Twenty-Five with no theme changes, and on the Thrivemattic site with the three theme files put back to how they were before the patch below.
+**The plugin does not need any theme code.** The form, the states, the report layout, the email step and the styles all belong to the plugin. It was run on Twenty Twenty-Five with no theme changes, and on the local Thrivemattic site with the three theme files served to the test browser as they were before the patch below. The files on disk were not changed for that test.
 
 This note covers the one thing a plugin should not do: change the page around it.
 
