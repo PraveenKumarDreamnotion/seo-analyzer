@@ -1,6 +1,8 @@
 {
     "name": "thrivemattic/seo-analyzer",
+    "description": "Halo Audit. Scores one page for on-page SEO, technical health, AI readiness and speed.",
     "type": "wordpress-plugin",
+    "license": "GPL-2.0-or-later",
     "require": {
         "php": ">=8.0",
         "ext-dom": "*",

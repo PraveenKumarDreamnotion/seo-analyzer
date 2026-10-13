@@ -123,7 +123,8 @@
     flag(keywordField, this.status.id, !keyword);
     if (!url || !keyword) {
       this.say('Enter a page address and a keyword.', true);
-      this.setState('invalid');
+      // A report that is already on the page stays, and so does its state.
+      if (this.results.hidden) { this.setState('invalid'); }
       (url ? keywordField : urlField).focus();
       return;
     }

@@ -78,6 +78,9 @@ final class RepoHygieneTest extends TestCase
     public function test_uninstall_removes_every_table_and_option(): void
     {
         $code = file_get_contents($this->root . '/uninstall.php');
+        // The data is kept when another active copy of the plugin still uses it.
+        $this->assertStringContainsString('plugin_basename(SEO_ANALYZER_PLUGIN_FILE) !== WP_UNINSTALL_PLUGIN', $code);
+        $this->assertLessThan(strpos($code, 'DROP TABLE'), strpos($code, 'WP_UNINSTALL_PLUGIN) {'));
         foreach (['seo_analyzer_results', 'seo_analyzer_otp', 'seo_analyzer_api_keys'] as $table) {
             $this->assertStringContainsString($table, $code, $table);
         }

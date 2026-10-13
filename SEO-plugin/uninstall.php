@@ -3,6 +3,12 @@ if (!defined('WP_UNINSTALL_PLUGIN')) {
     exit;
 }
 
+// A copy of this plugin in another folder is active and uses the same tables and settings.
+// Deleting the spare copy must not take the reports and leads with it.
+if (defined('SEO_ANALYZER_PLUGIN_FILE') && plugin_basename(SEO_ANALYZER_PLUGIN_FILE) !== WP_UNINSTALL_PLUGIN) {
+    return;
+}
+
 global $wpdb;
 
 foreach (['seo_analyzer_results', 'seo_analyzer_otp', 'seo_analyzer_api_keys'] as $table) {
