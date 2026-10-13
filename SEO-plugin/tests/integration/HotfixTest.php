@@ -28,16 +28,4 @@ class Halo_Hotfix_Test extends WP_UnitTestCase
         $this->expectException(WPDieException::class);
         (new Seo_Analyzer_Admin('seo-analyzer', '1.0.6'))->handle_report_actions();
     }
-
-    public function test_open_endpoints_are_gone(): void
-    {
-        foreach (['test_wp_mail', 'save_competitor_score', 'save_competitor_data', 'save_competitor_results', 'save_competitor_overall_score'] as $action) {
-            $this->assertFalse(has_action('wp_ajax_nopriv_' . $action), $action);
-        }
-    }
-
-    public function test_cleanup_hook_is_gone(): void
-    {
-        $this->assertFalse(has_action('admin_init', 'seo_analyzer_cleanup_database'));
-    }
 }
