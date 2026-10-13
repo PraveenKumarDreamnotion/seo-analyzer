@@ -29,6 +29,10 @@ final class Plugin
         });
 
         Shortcode::register();
+
+        if (is_admin()) {
+            Admin\Admin::register();
+        }
     }
 
     public static function store(): ReportStore

@@ -30,13 +30,4 @@ if (!file_exists(SEO_ANALYZER_PLUGIN_DIR . 'vendor/autoload.php')) {
 require_once SEO_ANALYZER_PLUGIN_DIR . 'vendor/autoload.php';
 require_once SEO_ANALYZER_PLUGIN_DIR . 'includes/class-seo-analyzer-mailer.php';
 
-// Old admin screens. Replaced in a later commit.
-function seo_analyzer_is_addon_openai_active() {
-    return false;
-}
-require_once SEO_ANALYZER_PLUGIN_DIR . 'admin/class-seo-analyzer-admin.php';
-if (is_admin()) {
-    new Seo_Analyzer_Admin('seo-analyzer', SEO_ANALYZER_VERSION);
-}
-
 \HaloAudit\Wp\Plugin::boot();
