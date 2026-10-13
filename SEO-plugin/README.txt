@@ -1,67 +1,46 @@
 === SEO Analyzer ===
-Contributors: [thrivemattic.com]
-Donate link: https://thrivemattic.com
-Tags: seo, analysis, optimization, performance
-Requires at least: 5.0
-Tested up to: 6.2
-Stable tag: 1.0.0
-Requires PHP: 7.2
+Contributors: thrivemattic
+Tags: seo, audit, ai, performance
+Requires at least: 6.2
+Tested up to: 6.8
+Stable tag: 2.0.0
+Requires PHP: 8.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-A comprehensive SEO analysis tool for WordPress sites.
+Halo Audit. Scores one page for on-page SEO, technical health, AI readiness and speed.
 
 == Description ==
 
-SEO Analyzer is a powerful plugin that helps you optimize your WordPress site for search engines. It provides in-depth analysis of your content, technical SEO elements, and user experience factors.
+Enter a page address and a keyword. Halo Audit reads the page and scores it in four areas:
 
-Key features:
-* Content quality assessment
-* Technical SEO analysis
-* On-page element optimization
-* User experience evaluation
-* Detailed recommendations for improvement
-* Integration with Google PageSpeed Insights
+* On-page for the keyword (30%)
+* Technical (20%)
+* AI readiness (30%)
+* Speed (20%)
 
-Whether you're a beginner or an experienced SEO professional, SEO Analyzer provides valuable insights to help improve your site's search engine rankings.
+Schools, colleges and universities also get four admission checks. These are shown but not scored.
+
+The score and grade are free. The full findings and the PDF need a name and a confirmed email.
+
+A check that cannot run shows "Not measured". It never lowers the score.
 
 == Installation ==
 
-1. Upload the `seo-analyzer` folder to the `/wp-content/plugins/` directory
-2. Activate the plugin through the 'Plugins' menu in WordPress
-3. Go to the SEO Analyzer settings page to configure your API keys
-4. Use the [seo_analyzer] shortcode on any page or post to display the analysis tool
-
-== Frequently Asked Questions ==
-
-= Do I need an API key to use this plugin? =
-
-Yes, you'll need to enter your API key in the plugin settings. You can obtain a free API key from our website.
-
-= How often should I run an SEO analysis? =
-
-We recommend running an analysis whenever you make significant changes to your content or site structure, or at least once a month to stay on top of your SEO performance.
-
-== Screenshots ==
-
-1. SEO Analyzer settings page
-2. Analysis results dashboard
-3. Detailed recommendations view
-
-== Changelog ==
-
-= 1.0.0 =
-* Initial release
+1. Upload the plugin folder to /wp-content/plugins/.
+2. Run `composer install --no-dev` in the plugin folder.
+3. Activate the plugin.
+4. Go to SEO Analyzer > Settings. Add a Google PageSpeed API key and a Brevo API key.
+5. Add `[seo_analyzer title="Halo Audit"]` to a page.
 
 == Upgrade Notice ==
 
-= 1.0.0 =
-This is the initial release of SEO Analyzer.
+= 2.0.0 =
+Needs PHP 8.0 and WordPress 6.2. Run `composer install --no-dev` after you update. The OpenAI and NLP add-ons are no longer used: deactivate and delete them. The competitor comparison is removed.
 
-== Privacy Policy ==
+== Developer notes ==
 
-SEO Analyzer uses the Google PageSpeed Insights API to analyze page performance. This means that the URLs you analyze will be sent to Google's servers. Please ensure you have the necessary permissions before analyzing any URLs. For more information on Google's privacy policy, please visit: https://policies.google.com/privacy
-
-The plugin also stores analysis results in your WordPress database. These results include the analyzed URL, overall score, and detailed recommendations. This data is used to provide historical comparisons and generate reports. The data is not shared with any third parties.
-
-If you choose to use the email report feature, the plugin will send emails containing analysis results to the specified email address. Please ensure you have permission to send emails to any addresses you use with this feature.
+* Filter `halo_audit_client_ip`: return the true visitor IP when the site is behind a proxy.
+* Filter `halo_audit_scan_client`: return a `HaloAudit\ScanClient` to enable the live AI visibility scan.
+* Tests: `composer test` (unit). Integration tests need Docker: `npx wp-env start`, then
+  `npx wp-env run tests-cli --env-cwd=wp-content/plugins/SEO-plugin vendor/bin/phpunit -c phpunit.integration.xml`.

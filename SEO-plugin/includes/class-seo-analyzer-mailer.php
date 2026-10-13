@@ -55,7 +55,6 @@ class Seo_Analyzer_Mailer {
         ));
 
         if (is_wp_error($response)) {
-            error_log('SEO Analyzer Brevo API Error: ' . $response->get_error_message());
             // Fallback to default mail on error
             return wp_mail($to, $subject, $message);
         }
@@ -64,7 +63,6 @@ class Seo_Analyzer_Mailer {
         $response_body = json_decode(wp_remote_retrieve_body($response), true);
 
         if ($response_code !== 201) {
-            error_log('SEO Analyzer Brevo API Error: ' . print_r($response_body, true));
             // Fallback to default mail on error
             return wp_mail($to, $subject, $message);
         }
