@@ -144,6 +144,20 @@ class Halo_Rest_Test extends WP_UnitTestCase
         $this->assertNull(Plugin::store()->get($id)['email']);
     }
 
+    public function test_code_checks_from_one_ip_are_rate_limited(): void
+    {
+        $unknown = str_repeat('a', 32);
+        foreach (range(1, RestController::VERIFY_PER_HOUR) as $i) {
+            $status = $this->call('POST', '/gate/verify', ['email' => "u$i@example.com", 'code' => '000000', 'name' => 'A', 'report_id' => $unknown])->get_status();
+            $this->assertSame(404, $status);
+        }
+        $response = $this->call('POST', '/gate/verify', ['email' => 'x@example.com', 'code' => '000000', 'name' => 'A', 'report_id' => $unknown]);
+        $this->assertSame(429, $response->get_status());
+
+        $_SERVER['REMOTE_ADDR'] = '203.0.113.99';
+        $this->assertSame(404, $this->call('POST', '/gate/verify', ['email' => 'x@example.com', 'code' => '000000', 'name' => 'A', 'report_id' => $unknown])->get_status());
+    }
+
     public function test_speed_fills_the_speed_group(): void
     {
         update_option('halo_audit_psi_key', 'KEY');

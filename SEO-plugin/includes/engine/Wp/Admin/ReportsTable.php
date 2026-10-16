@@ -1,6 +1,7 @@
 <?php
 namespace HaloAudit\Wp\Admin;
 
+use HaloAudit\Wp\BrevoSync;
 use HaloAudit\Wp\Installer;
 
 if (!class_exists('\WP_List_Table')) {
@@ -15,7 +16,7 @@ final class ReportsTable extends \WP_List_Table
     {
         return [
             'created_at' => 'Date', 'name' => 'Name', 'email' => 'Email', 'url' => 'Page',
-            'keyword' => 'Keyword', 'overall_score' => 'Score', 'grade' => 'Grade', 'is_education' => 'Education',
+            'competitor_url' => 'Competitor page', 'keyword' => 'Keyword', 'overall_score' => 'Score', 'grade' => 'Grade', 'is_education' => 'Education', 'brevo' => 'Brevo list',
         ];
     }
 
@@ -28,7 +29,7 @@ final class ReportsTable extends \WP_List_Table
 
         $this->_column_headers = [$this->get_columns(), [], []];
         $this->items = $wpdb->get_results($wpdb->prepare(
-            "SELECT id, name, email, url, keyword, overall_score, grade, is_education, created_at FROM $table ORDER BY id DESC LIMIT %d OFFSET %d",
+            "SELECT id, name, email, url, competitor_url, competitor_overall_score, keyword, overall_score, grade, is_education, created_at FROM $table ORDER BY id DESC LIMIT %d OFFSET %d",
             self::PER_PAGE,
             $offset
         ), ARRAY_A);
@@ -43,6 +44,18 @@ final class ReportsTable extends \WP_List_Table
         }
         if ($column_name === 'overall_score') {
             return $value === null || $value === '' ? 'Not measured' : esc_html((string) (int) round((float) $value));
+        }
+        if ($column_name === 'brevo') {
+            // Only a confirmed email can be in the list.
+            return empty($item['email']) ? '' : esc_html(BrevoSync::label(BrevoSync::status((string) $item['email'])));
+        }
+        if ($column_name === 'competitor_url') {
+            // A comparison: the competitor page and its score. Empty for a single-page audit.
+            if ($value === null || $value === '') {
+                return '';
+            }
+            $score = $item['competitor_overall_score'] ?? null;
+            return esc_html((string) $value) . ($score === null || $score === '' ? '' : ' (' . esc_html((string) (int) round((float) $score)) . ')');
         }
         if (($column_name === 'name' || $column_name === 'email') && ($value === null || $value === '')) {
             return '<em>No email given</em>';

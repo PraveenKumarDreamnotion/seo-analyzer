@@ -21,19 +21,30 @@ final class AiCrawlers extends BaseCheck
     public function run(Context $c): Result
     {
         $status = $c->site->robotsStatus;
-        if ($status === null || $status >= 500) {
-            return Result::notMeasured('The robots.txt file could not be fetched');
+        // RFC 9309 2.3.1.3: any 4xx (including 401 and 403) means "no rules", so crawlers may read
+        // everything. A rate limit, a server error or no answer leaves the rules unknown.
+        if ($status === null || $status === 429 || ($status !== 200 && $status < 400) || $status >= 500) {
+            return Result::notMeasured($status === null ? 'The robots.txt file could not be fetched' : 'The robots.txt rules could not be read (HTTP ' . $status . ')');
         }
-        if ($c->site->robots === null) {
-            return Result::pass('No robots.txt rules, so all crawlers are allowed');
+        $robots = $c->site->robots;
+        if ($robots === null) {
+            return Result::pass($status === 200 ? 'No robots.txt rules, so all crawlers are allowed' : 'No robots.txt (HTTP ' . $status . '), so all crawlers are allowed');
         }
 
         $path = Url::path($c->url);
         $blocked = [];
+        $fallThrough = false;
         foreach (self::AGENTS as $agent) {
-            if (!$c->site->robots->isAllowed($agent, $path)) {
+            if (!$robots->isAllowed($agent, $path)) {
                 $blocked[] = $agent;
             }
+            $fallThrough = $fallThrough || !$robots->hasNamedGroup($agent);
+        }
+
+        // Design 3.2: "Disallow: /" for "*" is a fail on its own. It only binds the AI crawlers that
+        // have no group of their own, so it counts when at least one of the seven falls through to "*".
+        if ($fallThrough && !$robots->isAllowed('*', '/')) {
+            return Result::fail('robots.txt blocks every crawler (User-agent: * / Disallow: /)' . ($blocked !== [] ? '. Blocked: ' . implode(', ', $blocked) : ''));
         }
         if ($blocked === []) {
             return Result::pass('All 7 AI crawlers are allowed');

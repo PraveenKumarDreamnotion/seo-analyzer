@@ -66,6 +66,18 @@ final class RobotsTxt
         return $best === null ? true : $best['allow'];
     }
 
+    /** True when the agent has a group of its own, so the "*" group does not apply to it. */
+    public function hasNamedGroup(string $agent): bool
+    {
+        $agent = strtolower($agent);
+        foreach ($this->groups as $group) {
+            if ($agent !== '*' && in_array($agent, $group['agents'], true)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** @return string[] */
     public function sitemaps(): array
     {

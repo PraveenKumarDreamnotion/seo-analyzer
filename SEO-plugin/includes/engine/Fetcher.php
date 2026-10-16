@@ -39,12 +39,12 @@ final class Fetcher
             if ($this->deadline !== null && microtime(true) > $this->deadline) {
                 return $this->fail('time budget used up', $current, $chain);
             }
-            $reason = $this->guard->reject($current);
-            if ($reason !== null) {
-                return $this->fail('blocked: ' . $reason, $current, $chain);
+            $check = $this->guard->inspect($current);
+            if ($check['reason'] !== null) {
+                return $this->fail('blocked: ' . $check['reason'], $current, $chain);
             }
 
-            $response = $this->http->request('GET', $current, $timeout, $maxBytes);
+            $response = $this->http->request('GET', $current, $timeout, $maxBytes, [], $check['ips']);
             if ($response->error !== null) {
                 $response->finalUrl = $current;
                 $response->chain = $chain;

@@ -56,19 +56,22 @@ final class SiteProbe
             $candidates[] = $origin . $path;
         }
 
+        // "No sitemap" needs a definite answer from every address tried. If any of them failed,
+        // was refused or hit a server error, that one may be the real sitemap: not measured.
+        $unavailable = false;
         foreach (array_slice(array_unique($candidates), 0, 4) as $candidate) {
             $r = $fetcher->get($candidate);
-            if ($r->error !== null) {
-                continue;
-            }
-            if ($r->status === 200 && preg_match('/<(urlset|sitemapindex)[\s>]/i', $r->body)) {
+            if ($r->error === null && $r->status === 200 && preg_match('/<(urlset|sitemapindex)[\s>]/i', $r->body)) {
                 $site->sitemapStatus = 200;
                 $site->sitemapValid = true;
                 $site->sitemapNewest = self::newestLastmod($r->body);
                 return;
             }
-            $site->sitemapStatus = $r->status === 200 ? 404 : $r->status;
+            if (SiteFacts::unavailable($r->error === null ? $r->status : null)) {
+                $unavailable = true;
+            }
         }
+        $site->sitemapStatus = $unavailable ? null : 404;
     }
 
     private static function newestLastmod(string $xml): ?int
@@ -120,12 +123,18 @@ final class SiteProbe
             $site->feedFound = true;
             return;
         }
+        // Same rule as the sitemap: "no feed" only when every known path gave a definite answer.
+        $unavailable = false;
         foreach (self::FEED_PATHS as $path) {
             $r = $fetcher->get($origin . $path, 5, 4096);
             if ($r->ok() && preg_match('/<(rss|feed)[\s>]/i', $r->body)) {
                 $site->feedFound = true;
                 return;
             }
+            if (SiteFacts::unavailable($r->error === null ? $r->status : null)) {
+                $unavailable = true;
+            }
         }
+        $site->feedFound = $unavailable ? null : false;
     }
 }

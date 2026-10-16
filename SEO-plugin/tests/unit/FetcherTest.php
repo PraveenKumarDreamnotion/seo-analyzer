@@ -80,6 +80,36 @@ final class FetcherTest extends TestCase
         $this->assertNotNull($r->error);
     }
 
+    public function test_each_hop_is_pinned_to_the_address_the_guard_checked(): void
+    {
+        $guard = new UrlGuard(static fn(string $host): array => ['example.com' => ['93.184.216.34'], 'cdn.example' => ['203.0.114.7']][$host] ?? []);
+        $fetcher = new Fetcher($this->http, $guard);
+        $this->http->routes['https://example.com/'] = Response::make(302, '', ['Location' => 'https://cdn.example/page']);
+        $this->http->routes['https://cdn.example/page'] = Response::make(200, 'ok');
+
+        $this->assertSame('ok', $fetcher->get('https://example.com/')->body);
+        $this->assertSame(['93.184.216.34'], $this->http->pins['https://example.com/']);
+        $this->assertSame(['203.0.114.7'], $this->http->pins['https://cdn.example/page']);
+    }
+
+    public function test_redirect_to_a_rebound_name_is_blocked_before_any_request(): void
+    {
+        // The second name answers with a private address: the guard runs again on the redirect target.
+        $guard = new UrlGuard(static fn(string $host): array => ['example.com' => ['93.184.216.34'], 'rebind.example' => ['192.168.0.10']][$host] ?? []);
+        $fetcher = new Fetcher($this->http, $guard);
+        $this->http->routes['https://example.com/'] = Response::make(301, '', ['Location' => 'https://rebind.example/']);
+        $this->assertStringStartsWith('blocked', (string) $fetcher->get('https://example.com/')->error);
+        $this->assertSame(['https://example.com/'], $this->http->calls);
+    }
+
+    public function test_redirect_to_an_odd_port_or_scheme_is_blocked(): void
+    {
+        $this->http->routes['https://example.com/a'] = Response::make(302, '', ['Location' => 'https://example.com:8443/']);
+        $this->http->routes['https://example.com/b'] = Response::make(302, '', ['Location' => 'gopher://example.com/']);
+        $this->assertStringStartsWith('blocked', (string) $this->fetcher->get('https://example.com/a')->error);
+        $this->assertStringStartsWith('blocked', (string) $this->fetcher->get('https://example.com/b')->error);
+    }
+
     public function test_deadline_stops_further_fetches(): void
     {
         $this->http->routes['https://example.com/slow'] = Response::make(200, 'x');

@@ -9,7 +9,9 @@ class Halo_Shortcode_Test extends WP_UnitTestCase
         $this->assertStringContainsString('Halo &lt;Audit&gt;', $html);
         $this->assertStringContainsString('name="url"', $html);
         $this->assertStringContainsString('name="keyword"', $html);
-        $this->assertStringNotContainsString('competitor_url', $html);
+        // comparison="true" brings back the 1.x competitor field (see CompareTest for every attribute mix).
+        $this->assertStringContainsString('name="competitor_url"', $html);
+        $this->assertStringNotContainsString('competitor_url', do_shortcode('[seo_analyzer title="Halo Audit" popup="true" nlp="true"]'));
         $this->assertTrue(wp_script_is('halo-audit', 'enqueued'));
         $this->assertTrue(wp_style_is('halo-audit', 'enqueued'));
         // Older WordPress escapes the slashes in localised data; newer versions do not.

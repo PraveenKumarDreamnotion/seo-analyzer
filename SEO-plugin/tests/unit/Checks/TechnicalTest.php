@@ -72,7 +72,12 @@ final class TechnicalTest extends TestCase
 
     public function robots(): array
     {
-        return [[200, 'pass'], [404, 'warn'], [403, 'warn'], [500, 'not_measured'], [503, 'not_measured'], [null, 'not_measured']];
+        return [
+            [200, 'pass'], [404, 'warn'], [410, 'warn'], [400, 'warn'],
+            // A refusal or rate limit says nothing about whether the file exists.
+            [401, 'not_measured'], [403, 'not_measured'], [429, 'not_measured'], [302, 'not_measured'],
+            [500, 'not_measured'], [503, 'not_measured'], [null, 'not_measured'],
+        ];
     }
 
     public function test_sitemap(): void

@@ -21,6 +21,9 @@ foreach ([
     'halo_audit_scan_url',
     'halo_audit_scan_secret',
     'halo_audit_mail_failed_at',
+    'halo_audit_brevo_list_id',
+    'halo_audit_brevo_failed',
+    'halo_audit_brevo_attributes_failed',
     'seo_analyzer_brevo_api_key',
     'seo_analyzer_sender_email',
     'seo_analyzer_openai_api_key',
@@ -32,4 +35,6 @@ foreach ([
 }
 
 wp_clear_scheduled_hook('halo_audit_purge');
+wp_unschedule_hook('halo_audit_brevo_sync');
+$wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE 'halo\_audit\_brevo\_s\_%' OR option_name LIKE 'halo\_audit\_brevo\_l\_%'");
 $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '\_transient\_halo\_rl\_%' OR option_name LIKE '\_transient\_timeout\_halo\_rl\_%'");

@@ -113,6 +113,7 @@ final class PageFacts
         $blocks = 0;
         $invalid = 0;
         $types = [];
+        $topTypes = [];
         $query = sprintf('//script[translate(@type,"%s","%s")="application/ld+json"]', self::UPPER, self::LOWER);
         foreach ($this->xp->query($query) as $script) {
             $blocks++;
@@ -122,8 +123,16 @@ final class PageFacts
                 continue;
             }
             self::collectTypes($data, $types);
+            self::collectTopTypes($data, $topTypes);
         }
-        return $this->jsonLd = ['blocks' => $blocks, 'invalid' => $invalid, 'types' => array_values(array_unique($types))];
+        return $this->jsonLd = [
+            'blocks' => $blocks,
+            'invalid' => $invalid,
+            'types' => array_values(array_unique($types)),
+            // Types of the things the page describes: top-level objects and @graph members only.
+            // Nested values (publisher, potentialAction, itemListElement, image...) are left out.
+            'top_types' => array_values(array_unique($topTypes)),
+        ];
     }
 
     public function visibleText(): string
@@ -180,6 +189,26 @@ final class PageFacts
     private static function squash(string $text): string
     {
         return trim((string) preg_replace('/\s+/u', ' ', $text));
+    }
+
+    private static function collectTopTypes(array $data, array &$types): void
+    {
+        if ($data !== [] && array_keys($data) === range(0, count($data) - 1)) {
+            foreach ($data as $item) {
+                if (is_array($item)) {
+                    self::collectTopTypes($item, $types);
+                }
+            }
+            return;
+        }
+        foreach ((array) ($data['@type'] ?? []) as $type) {
+            if (is_string($type)) {
+                $types[] = $type;
+            }
+        }
+        if (isset($data['@graph']) && is_array($data['@graph'])) {
+            self::collectTopTypes($data['@graph'], $types);
+        }
     }
 
     private static function collectTypes(array $data, array &$types): void

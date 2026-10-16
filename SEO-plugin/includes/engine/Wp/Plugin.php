@@ -29,6 +29,7 @@ final class Plugin
         });
 
         Shortcode::register();
+        BrevoSync::register();
 
         if (is_admin()) {
             Admin\Admin::register();

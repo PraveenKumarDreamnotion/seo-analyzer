@@ -147,4 +147,78 @@ class Halo_Gate_Test extends WP_UnitTestCase
         $this->assertSame('asha@example.com', $this->gate->current()['email']);
         unset($_COOKIE[Gate::COOKIE]);
     }
+
+    public function test_the_fifth_try_can_still_be_the_right_code(): void
+    {
+        $this->gate->send('asha@example.com', '203.0.113.5');
+        foreach (range(1, 4) as $i) {
+            $this->assertSame('halo_code', $this->gate->verify('asha@example.com', '000000', 'Asha', $this->key)->get_error_code());
+        }
+        $this->assertIsString($this->gate->verify('asha@example.com', $this->code, 'Asha', $this->key));
+    }
+
+    /**
+     * Runs $then once, right after this request has read the code row and before its next
+     * statement on the code table: the window in which parallel requests interleave.
+     */
+    private function afterCodeRowIsRead(callable $then, string $nextStatement = ''): void
+    {
+        $table = Installer::otpTable();
+        $state = 'waiting';
+        add_filter('query', static function ($sql) use (&$state, $table, $then, $nextStatement) {
+            if ($state === 'waiting' && stripos($sql, "SELECT * FROM $table") === 0) {
+                $state = 'armed';
+            } elseif ($state === 'armed' && stripos($sql, $table) !== false && ($nextStatement === '' || stripos($sql, $nextStatement) === 0)) {
+                $state = 'done';
+                $then();
+            }
+            return $sql;
+        });
+    }
+
+    public function test_attempts_used_by_parallel_requests_count_against_this_one(): void
+    {
+        global $wpdb;
+        $this->gate->send('asha@example.com', '203.0.113.5');
+        // Five other requests spend every try while this one is between reading the row and acting on it.
+        $this->afterCodeRowIsRead(static function () use ($wpdb) {
+            $wpdb->query('UPDATE ' . Installer::otpTable() . ' SET attempts = ' . Gate::MAX_ATTEMPTS);
+        });
+
+        $result = $this->gate->verify('asha@example.com', $this->code, 'Asha', $this->key);
+        $this->assertWPError($result);
+        $this->assertSame('halo_code_void', $result->get_error_code());
+        $this->assertNull($this->store->get($this->key)['email']);
+    }
+
+    public function test_two_parallel_right_codes_unlock_only_once(): void
+    {
+        global $wpdb;
+        $this->gate->send('asha@example.com', '203.0.113.5');
+        // Another request with the same right code uses the code up just before this one does.
+        $this->afterCodeRowIsRead(static function () use ($wpdb) {
+            $wpdb->query('DELETE FROM ' . Installer::otpTable());
+        }, 'DELETE');
+
+        $result = $this->gate->verify('asha@example.com', $this->code, 'Asha', $this->key);
+        $this->assertWPError($result);
+        $this->assertSame('halo_code', $result->get_error_code());
+        $this->assertNull($this->store->get($this->key)['email']);
+    }
+
+    public function test_many_wrong_tries_at_once_never_pass_five_claims(): void
+    {
+        global $wpdb;
+        $this->gate->send('asha@example.com', '203.0.113.5');
+        $table = Installer::otpTable();
+        $id = (int) $wpdb->get_var("SELECT id FROM $table");
+        // The claim statement the gate uses, run 20 times as 20 parallel requests would.
+        $won = 0;
+        foreach (range(1, 20) as $i) {
+            $won += (int) $wpdb->query($wpdb->prepare("UPDATE $table SET attempts = attempts + 1 WHERE id = %d AND attempts < %d", $id, Gate::MAX_ATTEMPTS));
+        }
+        $this->assertSame(Gate::MAX_ATTEMPTS, $won);
+        $this->assertSame(Gate::MAX_ATTEMPTS, (int) $wpdb->get_var("SELECT attempts FROM $table"));
+        $this->assertSame('halo_code_void', $this->gate->verify('asha@example.com', $this->code, 'Asha', $this->key)->get_error_code());
+    }
 }

@@ -18,7 +18,7 @@ final class Sitemap extends BaseCheck
     public function run(Context $c): Result
     {
         if ($c->site->sitemapStatus === null) {
-            return Result::notMeasured('The sitemap could not be fetched');
+            return Result::notMeasured('The sitemap could not be checked: at least one address failed or was refused');
         }
         return $c->site->sitemapValid ? Result::pass('A valid XML sitemap was found') : Result::warn('No valid XML sitemap was found');
     }

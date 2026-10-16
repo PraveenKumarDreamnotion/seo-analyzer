@@ -66,15 +66,28 @@ final class Gate
         if (!$row || strtotime($row['expires_at'] . ' UTC') < time()) {
             return $bad;
         }
-        if ((int) $row['attempts'] >= self::MAX_ATTEMPTS) {
+
+        // Claim one attempt before checking the code. The database applies this UPDATE to the row
+        // one request at a time, so at most MAX_ATTEMPTS requests can ever get past this line for
+        // one code, however many arrive at once. The attempts value read above is not trusted.
+        $claimed = $wpdb->query($wpdb->prepare(
+            "UPDATE $table SET attempts = attempts + 1 WHERE id = %d AND attempts < %d",
+            $row['id'],
+            self::MAX_ATTEMPTS
+        ));
+        if ($claimed !== 1) {
             $wpdb->delete($table, ['email' => $email]);
             return new \WP_Error('halo_code_void', 'Too many wrong tries. Request a new code.', ['status' => 400]);
         }
         if (!preg_match('/^\d{6}$/', $code) || !wp_check_password($code, $row['code_hash'])) {
-            $wpdb->query($wpdb->prepare("UPDATE $table SET attempts = attempts + 1 WHERE id = %d", $row['id']));
             return $bad;
         }
 
+        // Use the code up. Only the request whose DELETE removes the row wins, so two requests
+        // with the right code at the same moment cannot both unlock.
+        if ($wpdb->query($wpdb->prepare("DELETE FROM $table WHERE id = %d", $row['id'])) !== 1) {
+            return $bad;
+        }
         $wpdb->delete($table, ['email' => $email]);
         $this->store->attachLead($reportKey, $name, $email);
         return $this->token($name, $email, time() + self::UNLOCK_SECONDS);

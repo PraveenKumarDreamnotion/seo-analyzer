@@ -75,6 +75,19 @@ final class PageFactsTest extends TestCase
         $this->assertSame(2, $ld['blocks']);
         $this->assertSame(1, $ld['invalid']);
         $this->assertEqualsCanonicalizing(['Organization', 'WebPage', 'FAQPage'], $ld['types']);
+        $this->assertEqualsCanonicalizing(['Organization', 'WebPage', 'FAQPage'], $ld['top_types']);
+    }
+
+    public function test_top_types_leave_out_nested_values(): void
+    {
+        $p = $this->page(
+            '<script type="application/ld+json">{"@type":"WebSite","potentialAction":{"@type":"SearchAction"},"publisher":{"@type":"Organization"}}</script>'
+            . '<script type="application/ld+json">[{"@type":"Course","provider":{"@type":"CollegeOrUniversity"}},{"@graph":[{"@type":"Event"}]}]</script>',
+            ''
+        );
+        $ld = $p->jsonLd();
+        $this->assertEqualsCanonicalizing(['WebSite', 'Course', 'Event'], $ld['top_types']);
+        $this->assertEqualsCanonicalizing(['WebSite', 'SearchAction', 'Organization', 'Course', 'CollegeOrUniversity', 'Event'], $ld['types']);
     }
 
     public function test_visible_text_drops_script_and_style_and_keeps_word_breaks(): void

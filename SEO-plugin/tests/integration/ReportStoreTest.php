@@ -110,4 +110,53 @@ class Halo_Report_Store_Test extends WP_UnitTestCase
         $this->assertSame('OLDKEY', get_option('halo_audit_psi_key'));
         $this->assertNull($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $old)));
     }
+
+    public function test_upgrade_from_the_1x_table_keeps_old_leads(): void
+    {
+        global $wpdb;
+        $table = Installer::resultsTable();
+        // Put the table back into the 1.x shape. ALTER commits on its own; the test database is
+        // rebuilt on every run, and the synthetic row is removed at the end.
+        $wpdb->query("DELETE FROM $table WHERE name IS NULL OR email IS NULL");
+        $wpdb->query("ALTER TABLE $table DROP INDEX report_key, DROP COLUMN report_key, DROP COLUMN grade, DROP COLUMN engine_version,"
+            . ' DROP COLUMN is_education, DROP COLUMN lead_verified_at, DROP COLUMN scan_id,'
+            . ' MODIFY name varchar(100) NOT NULL, MODIFY email varchar(100) NOT NULL');
+        $this->assertNotContains('report_key', $wpdb->get_col("SHOW COLUMNS FROM $table"));
+
+        $wpdb->insert($table, [
+            'name' => 'Synthetic Legacy', 'email' => 'legacy@example.invalid', 'url' => 'https://example.com/old',
+            'keyword' => 'old', 'results' => '{"legacy":true}', 'overall_score' => 55,
+        ]);
+        $legacyId = (int) $wpdb->insert_id;
+        delete_option('halo_audit_db_version');
+
+        Installer::maybeUpgrade();
+
+        $columns = $wpdb->get_col("SHOW COLUMNS FROM $table");
+        foreach (['report_key', 'engine_version', 'grade', 'is_education', 'lead_verified_at', 'scan_id'] as $column) {
+            $this->assertContains($column, $columns);
+        }
+        $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM $table WHERE id = %d", $legacyId), ARRAY_A);
+        $this->assertSame('Synthetic Legacy', $row['name']);
+        $this->assertSame('legacy@example.invalid', $row['email']);
+        $this->assertSame('{"legacy":true}', $row['results']);
+        $this->assertNull($row['report_key']);
+        $this->assertSame(Installer::DB_VERSION, get_option('halo_audit_db_version'));
+
+        // New-style reports work after the upgrade (name and email may be empty again), and the
+        // 7-day purge leaves the old row alone.
+        $store = new ReportStore();
+        $key = $store->create($this->report());
+        $this->assertNull($store->get($key)['email']);
+        $wpdb->query($wpdb->prepare("UPDATE $table SET created_at = %s WHERE id = %d", '2020-01-01 00:00:00', $legacyId));
+        $store->purgeUnverified();
+        $this->assertNotNull($wpdb->get_var($wpdb->prepare("SELECT id FROM $table WHERE id = %d", $legacyId)));
+
+        // The ALTERs above committed the synthetic legacy row, so its removal must be committed too:
+        // the test transaction is rolled back at tear-down and would otherwise undo this delete.
+        // Remove the new-style report made above as well, or the COMMIT would keep it.
+        $wpdb->delete($table, ['id' => $legacyId]);
+        $wpdb->delete($table, ['report_key' => $key]);
+        $wpdb->query('COMMIT');
+    }
 }

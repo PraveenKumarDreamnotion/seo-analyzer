@@ -16,6 +16,9 @@ final class Feed extends BaseCheck
 
     public function run(Context $c): Result
     {
+        if ($c->site->feedFound === null) {
+            return Result::notMeasured('The feed addresses could not all be checked');
+        }
         return $c->site->feedFound ? Result::pass('A feed was found') : Result::warn('No feed was found');
     }
 }

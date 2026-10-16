@@ -20,11 +20,20 @@ final class SchemaTypes extends BaseCheck
         'EducationalOrganization', 'CollegeOrUniversity', 'School', 'HighSchool',
     ];
 
+    /** Building blocks of other schema. They never say what kind of page this is. */
+    private const HELPER_TYPES = [
+        'BreadcrumbList', 'ListItem', 'ItemList', 'ImageObject', 'SearchAction', 'EntryPoint', 'ReadAction',
+        'PropertyValueSpecification', 'SiteNavigationElement', 'WPHeader', 'WPFooter', 'WPSideBar', 'ContactPoint', 'PostalAddress',
+    ];
+
     public function run(Context $c): Result
     {
-        $types = $c->page->jsonLd()['types'];
+        $ld = $c->page->jsonLd();
+        $types = $ld['types'];
+        // The publisher may be nested (Article.publisher), so site types count at any depth.
+        // The page type must be a thing the page itself describes, not a nested helper.
         $site = array_intersect($types, self::SITE_TYPES);
-        $page = array_diff($types, self::SITE_TYPES);
+        $page = array_diff($ld['top_types'], self::SITE_TYPES, self::HELPER_TYPES);
         $evidence = $types === [] ? 'No schema types found' : 'Found: ' . implode(', ', array_slice($types, 0, 8));
 
         if ($site !== [] && $page !== []) {

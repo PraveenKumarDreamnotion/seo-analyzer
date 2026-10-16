@@ -122,4 +122,85 @@ final class SiteProbeTest extends TestCase
         $this->http->routes['https://example.com/rss.xml'] = Response::make(200, '<?xml version="1.0"?><rss version="2.0"></rss>');
         $this->assertTrue($this->collect()->feedFound);
     }
+
+    private function feedPaths(Response $answer): void
+    {
+        foreach (['/feed/', '/rss.xml', '/atom.xml', '/feed.xml'] as $path) {
+            $this->http->routes['https://example.com' . $path] = $answer;
+        }
+    }
+
+    public function test_no_feed_when_every_path_answers_definitely(): void
+    {
+        $this->feedPaths(Response::make(404, ''));
+        $this->http->routes['https://example.com/feed/'] = Response::make(200, '<html><body>Blog</body></html>', ['content-type' => 'text/html']);
+        $this->assertFalse($this->collect()->feedFound);
+    }
+
+    public function test_feed_is_unknown_when_a_path_fails(): void
+    {
+        $this->feedPaths(Response::make(404, ''));
+        $this->http->routes['https://example.com/atom.xml'] = Response::make(503, '');
+        $this->assertNull($this->collect()->feedFound);
+    }
+
+    public function test_feed_is_unknown_when_a_path_is_refused(): void
+    {
+        $this->feedPaths(Response::make(404, ''));
+        $this->http->routes['https://example.com/feed.xml'] = Response::make(403, 'denied');
+        $this->assertNull($this->collect()->feedFound);
+    }
+
+    public function test_feed_is_unknown_when_the_time_budget_runs_out(): void
+    {
+        $this->feedPaths(Response::make(404, ''));
+        $this->fetcher->setDeadline(microtime(true) - 1); // every side fetch now reports "time budget used up"
+        $this->assertNull($this->collect()->feedFound);
+    }
+
+    private function sitemapPaths(Response $answer): void
+    {
+        foreach (['/sitemap.xml', '/sitemap_index.xml', '/wp-sitemap.xml'] as $path) {
+            $this->http->routes['https://example.com' . $path] = $answer;
+        }
+    }
+
+    public function test_sitemap_server_errors_are_not_measured(): void
+    {
+        $this->sitemapPaths(Response::make(503, ''));
+        $site = $this->collect();
+        $this->assertNull($site->sitemapStatus);
+        $this->assertFalse($site->sitemapValid);
+    }
+
+    public function test_one_failing_sitemap_address_makes_the_answer_unknown(): void
+    {
+        $this->sitemapPaths(Response::make(404, ''));
+        $this->http->routes['https://example.com/wp-sitemap.xml'] = Response::make(500, '');
+        $this->assertNull($this->collect()->sitemapStatus);
+    }
+
+    public function test_sitemap_declared_in_robots_that_is_refused_is_unknown(): void
+    {
+        $this->http->routes['https://example.com/robots.txt'] = Response::make(200, "Sitemap: https://example.com/map.xml", ['content-type' => 'text/plain']);
+        $this->http->routes['https://example.com/map.xml'] = Response::make(429, '');
+        $this->sitemapPaths(Response::make(404, ''));
+        $this->assertNull($this->collect()->sitemapStatus);
+    }
+
+    public function test_sitemap_missing_everywhere_is_404(): void
+    {
+        $this->sitemapPaths(Response::make(404, ''));
+        $site = $this->collect();
+        $this->assertSame(404, $site->sitemapStatus);
+        $this->assertFalse($site->sitemapValid);
+    }
+
+    public function test_refused_llms_txt_keeps_its_status(): void
+    {
+        $this->http->routes['https://example.com/llms.txt'] = Response::make(403, 'denied');
+        $site = $this->collect();
+        $this->assertSame(403, $site->llmsStatus);
+        $this->assertSame('', $site->llmsBody);
+    }
 }

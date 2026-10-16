@@ -3,7 +3,7 @@ namespace HaloAudit;
 
 final class Analyzer
 {
-    public const VERSION = '2.0.0';
+    public const VERSION = '2.0.1';
     private const SIDE_FILE_BUDGET_SECONDS = 10;
 
     private Fetcher $fetcher;
@@ -27,16 +27,20 @@ final class Analyzer
 
         $response = $this->fetcher->get($url, 15, 3000000);
         if ($response->error !== null) {
-            if (strpos($response->error, 'blocked') === 0) {
-                return self::failure('blocked', 'This address cannot be checked.');
-            }
-            return self::failure('unreachable', 'We could not read this page. The site did not answer in time.');
+            [$code, $message] = self::fetchError($response->error);
+            return self::failure($code, $message);
         }
-        if ($response->status >= 400) {
-            return self::failure('http_error', 'We could not read this page. The site answered with HTTP ' . $response->status . '.');
+        // Only a 2xx answer carries the page. A 204, a 304 or a 3xx with no Location has no page to score.
+        if ($response->status < 200 || $response->status >= 300) {
+            return self::failure('http_error', $response->status >= 300 && $response->status < 400
+                ? 'We could not read this page. The site answered with a redirect (HTTP ' . $response->status . ') but gave no new address.'
+                : 'We could not read this page. The site answered with HTTP ' . $response->status . '.');
+        }
+        if (trim($response->body) === '') {
+            return self::failure('empty', 'We could not read this page. The site sent back an empty page.');
         }
         $type = strtolower((string) $response->header('content-type'));
-        if ($type !== '' && strpos($type, 'html') === false) {
+        if ($type === '' ? !self::looksLikeHtml($response->body) : strpos($type, 'html') === false) {
             return self::failure('not_html', 'This address is not a web page.');
         }
 
@@ -109,6 +113,53 @@ final class Analyzer
             'evidence' => $result->evidence,
             'message' => $check->fix($result->status),
         ];
+    }
+
+    /** With no Content-Type, accept the body only if it starts like an HTML document. */
+    private static function looksLikeHtml(string $body): bool
+    {
+        $start = ltrim((string) preg_replace('/^\xEF\xBB\xBF/', '', substr($body, 0, 4096)));
+        return preg_match('/^(<\?xml[^>]*>\s*)?(<!--.*?-->\s*)*<(!doctype\s+html|html|head|body)[\s>]/is', $start) === 1;
+    }
+
+    /**
+     * Turns a transport error into a code and a sentence for the visitor.
+     * Fetcher errors start with "blocked:", "too many redirects" or "time budget"; the rest come
+     * from the WordPress HTTP API (cURL messages such as "cURL error 6: Could not resolve host").
+     *
+     * @return array{0:string,1:string}
+     */
+    public static function fetchError(string $error): array
+    {
+        $e = strtolower($error);
+        $dns = ['dns', 'We could not find this site. Its address does not resolve. Check the spelling.'];
+
+        if (strpos($e, 'blocked:') === 0) {
+            return strpos($e, 'does not resolve') !== false ? $dns : ['blocked', 'This address cannot be checked.'];
+        }
+        if (strpos($e, 'unsafe transport') === 0) {
+            return ['transport', 'This site cannot run audits safely: its server needs the PHP cURL extension.'];
+        }
+        if (strpos($e, 'a valid url was not provided') !== false) {
+            // wp_safe_remote_request refused the address on its own DNS check.
+            return ['blocked', 'This address cannot be checked.'];
+        }
+        if (strpos($e, 'too many redirects') !== false) {
+            return ['redirects', 'We could not read this page. It redirects more than ' . Fetcher::MAX_REDIRECTS . ' times.'];
+        }
+        if (preg_match('/curl error 28\b|timed? ?out|time budget/', $e)) {
+            return ['unreachable', 'We could not read this page. The site did not answer in time.'];
+        }
+        if (preg_match('/curl error 6\b|could not resolve|name or service not known|getaddrinfo/', $e)) {
+            return $dns;
+        }
+        if (preg_match('/curl error (35|51|58|60|77)\b|ssl|tls|certificate/', $e)) {
+            return ['tls', 'We could not read this page. Its security certificate could not be verified.'];
+        }
+        if (preg_match('/curl error (7|52|55|56)\b|refused|reset|failed to connect|empty reply|couldn\'t connect/', $e)) {
+            return ['connect', 'We could not read this page. The site refused or dropped the connection.'];
+        }
+        return ['unreachable', 'We could not read this page. The connection to the site failed.'];
     }
 
     private static function failure(string $code, string $message): array

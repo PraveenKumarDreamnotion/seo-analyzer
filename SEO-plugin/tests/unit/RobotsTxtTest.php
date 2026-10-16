@@ -18,6 +18,17 @@ final class RobotsTxtTest extends TestCase
         $this->assertFalse($r->isAllowed('bingbot', '/page'));
     }
 
+    public function test_named_group_is_reported_and_star_is_not_a_name(): void
+    {
+        $r = RobotsTxt::parse("User-agent: *\nDisallow: /\n\nUser-agent: gptbot\nAllow: /");
+        $this->assertTrue($r->hasNamedGroup('GPTBot'));
+        $this->assertFalse($r->hasNamedGroup('ClaudeBot'));
+        $this->assertFalse($r->hasNamedGroup('*'));
+        $this->assertFalse($r->isAllowed('*', '/'));
+        $this->assertFalse($r->isAllowed('ClaudeBot', '/page'));
+        $this->assertTrue($r->isAllowed('GPTBot', '/page'));
+    }
+
     public function test_agent_match_is_case_insensitive(): void
     {
         $r = RobotsTxt::parse("user-agent: gptbot\ndisallow: /");

@@ -163,3 +163,36 @@ Not tested in this round:
 5. Deploy steps in `README.md`, including the add-on removal on each site.
 6. WP Rocket "Remove Unused CSS" is active on this site. Most `.halo-audit__*` elements are created by the script after load, so their rules may be stripped on a cached page. Check on staging, and safelist `halo-audit` or exclude `halo-audit.css` if needed. The local browser run showed the widget styled, but it was not checked against a warmed cache.
 7. In the browser run on `/ai-tools/seo-analysis/` the only failed request was the deliberate wrong-code `POST /gate/verify` (400). There were no script errors on either tool page.
+
+## 2.0.1 hardening and stand-alone check (2026-10-15)
+
+Version 2.0.1 adds the engine and security fixes in `CHANGELOG.md`. It was built as a review candidate from the uncommitted working tree on top of `5a16c47` (`bin/build-zip.sh … WORKTREE`). It has not been committed, pushed or installed on any Thrivemattic site.
+
+### Acceptance criteria: stand-alone plugin
+
+A build passes only if all of these hold:
+
+1. The ZIP holds one `seo-analyzer/` folder with the plugin code, its CSS and JS, and the production Composer packages. It has no tests, build files, `composer.lock`, credentials or logs.
+2. On a WordPress site with no other active plugin and a stock theme, activating the ZIP and adding `[seo_analyzer]` to a page gives a working form. The plugin loads its own CSS and JS from its own folder, only on pages with the shortcode.
+3. The full flow works on that site: audit, score and grade, email step, code, every finding, PDF. It works with no PageSpeed key and no OpenAI key or add-on.
+4. Logged-out visitors cannot read a report or a PDF without a confirmed email. The lead export refuses them.
+5. The same holds on a block theme and on a classic theme, at desktop and phone widths, with no horizontal scroll and every field labelled.
+6. Activation on an empty database creates the tables. An update from the 1.x table keeps the old leads.
+
+### Results
+
+| Criterion | Evidence | Result |
+|---|---|---|
+| 1 | Candidate `halo-audit-2.0.1.zip`: 683 files, single root; 81 non-vendor files byte-identical to the working tree (LF); no export-ignored file, no `composer.lock`, no secret patterns; versions 2.0.1 everywhere; `curl` in the required extensions | PASS |
+| 2 | wp-env development site (WordPress 7.1.3, PHP 8.1.34), plain permalinks; ZIP installed with `wp plugin install`; only other plugin is the inactive Hello Dolly. No GeneratePress, no TM Blocks, no Thrivemattic code. Plugin CSS and JS loaded from `wp-content/plugins/seo-analyzer/public/`. Not loaded on a page without the shortcode: integration test `test_style_is_enqueued_in_the_head_on_a_page_that_holds_the_shortcode` asserts both are not enqueued there | PASS |
+| 3 | Real browser flow (no browser mocks). A test-only must-use plugin served a fixture site, blocked every other outgoing request and recorded the code instead of emailing it. Result: score 89 before the gate, 33 findings after the code, a 70 KB PDF (`%PDF-`) from the server. Speed "Not measured" with no PageSpeed key | PASS |
+| 4 | Logged-out probes on the same site: analyze without nonce 403, report and PDF without unlock 403, forged cookie 403, export 400 | PASS |
+| 5 | Twenty Twenty-Five (block) and Twenty Twenty-One (classic) at 1440 and 390 px: all states idle → invalid → preview → gate → code → unlocked, 0 unlabelled fields, no horizontal scroll, no console errors | PASS |
+| 6 | Fresh database: the WordPress test install drops only core tables, so the two plugin tables were dropped from the isolated wp-env test database first (`SHOW TABLES` then returned none). The suite then ran (81 OK, including the schema test) and the tables existed afterwards, created by the plugin's bootstrap. 1.x upgrade: new test `test_upgrade_from_the_1x_table_keeps_old_leads` reshapes the table to 1.x, runs the upgrade, and checks that the legacy row survives, new reports work, and the purge spares the legacy row | PASS |
+
+Tests on the final source: unit 400 OK (913 assertions); integration 81 OK (346 assertions); `php -l` 106 files clean on PHP 8.0.30, 8.1.34 and 8.3; `node --check` on the JS.
+
+Not tested:
+- WordPress 6.2, the minimum in the header (the test sites run 7.1.3).
+- The WordPress layer on PHP 8.0 (only the unit suite and lint ran on 8.0).
+- Page builders, multisite, a subfolder install, and a server without cURL. Fail-closed without cURL is covered by an integration test through the `halo_audit_curl_usable` filter, not by a real server.

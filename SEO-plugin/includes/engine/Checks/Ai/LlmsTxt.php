@@ -4,6 +4,7 @@ namespace HaloAudit\Checks\Ai;
 use HaloAudit\BaseCheck;
 use HaloAudit\Context;
 use HaloAudit\Result;
+use HaloAudit\SiteFacts;
 
 final class LlmsTxt extends BaseCheck
 {
@@ -18,8 +19,8 @@ final class LlmsTxt extends BaseCheck
     public function run(Context $c): Result
     {
         $status = $c->site->llmsStatus;
-        if ($status === null) {
-            return Result::notMeasured('The llms.txt file could not be fetched');
+        if (SiteFacts::unavailable($status)) {
+            return Result::notMeasured($status === null ? 'The llms.txt file could not be fetched' : 'The site did not let us check llms.txt (HTTP ' . $status . ')');
         }
         if ($status !== 200) {
             return Result::fail('Not found (HTTP ' . $status . ')');

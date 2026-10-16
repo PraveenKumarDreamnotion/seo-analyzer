@@ -47,11 +47,99 @@ class Halo_Adapters_Test extends WP_UnitTestCase
         $this->assertSame('blocked', $out['code']);
     }
 
+    public function test_resolve_entry_pins_the_checked_address(): void
+    {
+        $this->assertSame('example.com:443:93.184.216.34', WpHttpClient::resolveEntry('https://Example.com/a', ['2606:4700:4700::1111', '93.184.216.34']));
+        $this->assertSame('example.com:80:[2606:4700:4700::1111]', WpHttpClient::resolveEntry('http://example.com/', ['2606:4700:4700::1111']));
+        $this->assertSame('example.com:443:93.184.216.34', WpHttpClient::resolveEntry('https://example.com:443/', ['93.184.216.34']));
+        $this->assertNull(WpHttpClient::resolveEntry('https://93.184.216.34/', ['93.184.216.34']));
+        $this->assertNull(WpHttpClient::resolveEntry('https://example.com/', []));
+    }
+
+    private static function curlHooks(): int
+    {
+        global $wp_filter;
+        return isset($wp_filter['http_api_curl']) ? count($wp_filter['http_api_curl']->callbacks[10] ?? []) : 0;
+    }
+
+    public function test_pin_is_active_only_during_the_request(): void
+    {
+        $before = self::curlHooks();
+        $during = null;
+        add_filter('pre_http_request', static function () use (&$during) {
+            $during = self::curlHooks();
+            return ['headers' => [], 'body' => 'ok', 'response' => ['code' => 200, 'message' => 'OK'], 'cookies' => []];
+        });
+
+        (new WpHttpClient())->request('GET', 'https://example.com/', 5, 1000, [], ['93.184.216.34']);
+        $this->assertSame($before + 1, $during);
+        $this->assertSame($before, self::curlHooks());
+
+        (new WpHttpClient())->request('GET', 'https://example.com/', 5, 1000);
+        $this->assertSame($before, $during, 'no pin without checked addresses');
+    }
+
+    public function test_pin_is_removed_when_the_request_throws(): void
+    {
+        $before = self::curlHooks();
+        add_filter('pre_http_request', static function () {
+            throw new RuntimeException('transport blew up');
+        });
+        try {
+            (new WpHttpClient())->request('GET', 'https://example.com/', 5, 1000, [], ['93.184.216.34']);
+            $this->fail('expected the exception');
+        } catch (RuntimeException $e) {
+            $this->assertSame($before, self::curlHooks());
+        }
+    }
+
+    public function test_curl_is_usable_in_this_environment(): void
+    {
+        $this->assertTrue(WpHttpClient::curlUsable('https://example.com/'));
+    }
+
+    public function test_without_usable_curl_a_page_fetch_fails_closed_before_any_request(): void
+    {
+        add_filter('halo_audit_curl_usable', '__return_false');
+        $calls = 0;
+        add_filter('pre_http_request', static function ($pre) use (&$calls) {
+            $calls++;
+            return $pre;
+        });
+
+        $response = (new WpHttpClient())->request('GET', 'https://example.com/', 5, 1000, [], ['93.184.216.34']);
+        $this->assertStringStartsWith(WpHttpClient::UNSAFE_TRANSPORT, (string) $response->error);
+        $this->assertSame(0, $calls);
+
+        $out = Plugin::analyzer()->analyze('https://example.com/', 'x');
+        $this->assertFalse($out['ok']);
+    }
+
+    public function test_requests_without_pins_are_not_forced(): void
+    {
+        // PageSpeed and other fixed API calls carry no pinned address and are not affected.
+        add_filter('halo_audit_curl_usable', '__return_false');
+        add_filter('pre_http_request', static fn() => ['headers' => [], 'body' => '{}', 'response' => ['code' => 200, 'message' => 'OK'], 'cookies' => []]);
+        $this->assertSame(200, (new WpHttpClient())->request('GET', 'https://www.googleapis.com/x', 5, 1000)->status);
+    }
+
+    public function test_an_answer_that_did_not_pass_the_pin_is_refused(): void
+    {
+        // Registered while the request runs, after the client's own watcher: to the client this looks
+        // like a real answer that arrived without the cURL pin firing (another transport).
+        add_filter('http_request_args', static function ($args) {
+            add_filter('pre_http_request', static fn() => ['headers' => [], 'body' => 'x', 'response' => ['code' => 200, 'message' => 'OK'], 'cookies' => []], PHP_INT_MAX);
+            return $args;
+        });
+        $response = (new WpHttpClient())->request('GET', 'https://example.com/', 5, 1000, [], ['93.184.216.34']);
+        $this->assertStringStartsWith(WpHttpClient::UNSAFE_TRANSPORT, (string) $response->error);
+    }
+
     public function test_old_public_ajax_actions_are_gone(): void
     {
         foreach (['perform_seo_analysis', 'fetch_page_title', 'send_otp', 'verify_otp_and_save_data', 'download_pdf_report', 'test_wp_mail'] as $action) {
             $this->assertFalse(has_action('wp_ajax_nopriv_' . $action), $action);
         }
-        $this->assertSame('2.0.0', SEO_ANALYZER_VERSION);
+        $this->assertSame('2.0.1', SEO_ANALYZER_VERSION);
     }
 }

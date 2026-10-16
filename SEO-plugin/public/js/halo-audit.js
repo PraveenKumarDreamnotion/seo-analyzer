@@ -79,6 +79,8 @@
     this.status = root.querySelector('.halo-audit__status');
     this.results = root.querySelector('.halo-audit__results');
     this.button = this.form.querySelector('.halo-audit__button');
+    // Comparison mode: the shortcode printed a competitor page field.
+    this.competitorField = this.form.elements.competitor_url || null;
     this.level = Math.min(5, Math.max(2, parseInt(root.getAttribute('data-heading-level'), 10) || 2));
     this.data = null;
     if (!this.status.id) { this.status.id = this.id + '-status'; }
@@ -117,15 +119,18 @@
     if (this.button.disabled) { return; }
     var urlField = this.form.elements.url;
     var keywordField = this.form.elements.keyword;
+    var competitorField = this.competitorField;
     var url = urlField.value.trim();
     var keyword = keywordField.value.trim();
+    var competitorUrl = competitorField ? competitorField.value.trim() : '';
     flag(urlField, this.status.id, !url);
     flag(keywordField, this.status.id, !keyword);
-    if (!url || !keyword) {
-      this.say('Enter a page address and a keyword.', true);
+    if (competitorField) { flag(competitorField, this.status.id, !competitorUrl); }
+    if (!url || !keyword || (competitorField && !competitorUrl)) {
+      this.say(competitorField ? 'Enter your page address, a competitor page address and a keyword.' : 'Enter a page address and a keyword.', true);
       // A report that is already on the page stays, and so does its state.
       if (this.results.hidden) { this.setState('invalid'); }
-      (url ? keywordField : urlField).focus();
+      (!url ? urlField : (competitorField && !competitorUrl) ? competitorField : keywordField).focus();
       return;
     }
     var self = this;
@@ -133,26 +138,47 @@
     this.results.hidden = true;
     clear(this.results);
     this.data = null;
-    this.say('Reading the page. This takes up to 15 seconds.');
+    this.say(competitorField ? 'Reading both pages. This takes up to a minute.' : 'Reading the page. This takes up to 15 seconds.');
     this.setState('loading');
 
-    api('POST', 'analyze', { url: url, keyword: keyword }).then(function (data) {
+    var body = { url: url, keyword: keyword };
+    if (competitorField) { body.competitor_url = competitorUrl; }
+    // The signed address of the page this form is on (FORM_NAME in Brevo). The server checks the signature.
+    if (this.root.getAttribute('data-form-page')) { body.form_page = this.root.getAttribute('data-form-page'); }
+    api('POST', 'analyze', body).then(function (data) {
       self.data = data;
       self.say('Audit complete. The score is below.');
       self.render();
       self.setState('preview');
       if (data.unlocked) { self.loadFull(); }
-      if (data.speed_done) { return null; }
-      return api('POST', 'speed', { report_id: data.report_id }).then(function (speed) {
+      // The server measures one page per call; a comparison needs a second call for the competitor.
+      function speedDone() { return data.speed_done && (!data.competitor || data.competitor.speed_done); }
+      function measure() {
+        if (speedDone()) { return null; }
+        return api('POST', 'speed', { report_id: data.report_id }).then(function (speed) {
+          if (self.data !== data) { return null; }
+          data.summary = speed.summary;
+          data.speed_done = speed.speed_done;
+          if (speed.competitor && data.competitor) {
+            data.competitor.summary = speed.competitor.summary;
+            data.competitor.speed_done = speed.competitor.speed_done;
+          }
+          self.renderSummary();
+          if (speedDone()) {
+            if (data.checks || data.unlocked) { self.loadFull(); }
+            return null;
+          }
+          return measure();
+        });
+      }
+      var measured = measure();
+      return measured && measured.catch(function () {
         if (self.data !== data) { return; }
-        self.data.summary = speed.summary;
-        self.data.speed_done = true;
+        data.speed_done = true;
+        if (data.competitor) { data.competitor.speed_done = true; }
         self.renderSummary();
-        if (self.data.checks) { self.loadFull(); }
-      }).catch(function () {
-        if (self.data !== data) { return; }
-        self.data.speed_done = true;
-        self.renderSummary();
+        // The findings' area lines also said "Testing speed...": show "Not measured" there too.
+        if (data.checks) { self.renderFindings(); }
       });
     }).catch(function (error) {
       self.say(error.message, true);
@@ -182,6 +208,7 @@
     var data = this.data;
     var summary = data.summary;
     clear(this.summaryBox);
+    if (data.competitor) { this.renderComparison(); return; }
 
     this.summaryBox.appendChild(el('p', 'halo-audit__url', data.url));
     var score = el('div', 'halo-audit__score');
@@ -212,6 +239,72 @@
       list.appendChild(item);
     });
     this.summaryBox.appendChild(list);
+  };
+
+  function groupScore(group, speedDone, key) {
+    if (key === 'speed' && !speedDone) { return 'Testing speed...'; }
+    return !group || group.score === null ? 'Not measured' : group.score + ' / 100';
+  }
+
+  /* Comparison: both pages scored by the same checks against the same keyword. */
+  Widget.prototype.renderComparison = function () {
+    var data = this.data;
+    var them = data.competitor;
+    var box = this.summaryBox;
+
+    var versus = el('div', 'halo-audit__versus');
+    [['Your page', data, 'halo-audit__side--you'], ['Competitor page', them, 'halo-audit__side--them']].forEach(function (side) {
+      var card = el('div', 'halo-audit__side ' + side[2]);
+      card.appendChild(el('p', 'halo-audit__side-name', side[0]));
+      card.appendChild(el('p', 'halo-audit__url', side[1].url));
+      var score = el('div', 'halo-audit__score');
+      var overall = side[1].summary.overall;
+      score.appendChild(el('span', 'halo-audit__score-number', overall === null ? 'Not measured' : overall));
+      if (overall !== null) { score.appendChild(el('span', 'halo-audit__score-of', 'out of 100')); }
+      if (side[1].summary.grade) { score.appendChild(el('span', 'halo-audit__grade halo-audit__grade--' + side[1].summary.grade, 'Grade ' + side[1].summary.grade)); }
+      card.appendChild(score);
+      versus.appendChild(card);
+    });
+    box.appendChild(versus);
+
+    var table = el('table', 'halo-audit__compare');
+    var head = el('tr');
+    ['Area', 'Your page', 'Competitor page', 'Difference'].forEach(function (text) {
+      var th = el('th', null, text); th.scope = 'col'; head.appendChild(th);
+    });
+    var thead = el('thead'); thead.appendChild(head); table.appendChild(thead);
+    var tbody = el('tbody');
+    Object.keys(data.summary.groups).forEach(function (key) {
+      var mine = data.summary.groups[key];
+      var theirs = them.summary.groups[key];
+      var row = el('tr');
+      var name = el('th', null, data.labels[key] || key); name.scope = 'row'; row.appendChild(name);
+      row.appendChild(el('td', null, groupScore(mine, data.speed_done, key)));
+      row.appendChild(el('td', null, groupScore(theirs, them.speed_done, key)));
+      var diff = '';
+      var cls = 'halo-audit__diff';
+      if (mine && theirs && mine.score !== null && theirs.score !== null) {
+        var d = mine.score - theirs.score;
+        diff = d === 0 ? 'Level' : (d > 0 ? '+' + d + ' ahead' : d + ' behind');
+        cls += d > 0 ? ' halo-audit__diff--ahead' : (d < 0 ? ' halo-audit__diff--behind' : '');
+      } else if ((mine && mine.score !== null) !== (theirs && theirs.score !== null) &&
+          !(key === 'speed' && (!data.speed_done || !them.speed_done))) {
+        // Measured on one page only. Not measured on both leaves the cell empty.
+        diff = 'Not comparable';
+      }
+      row.appendChild(el('td', cls, diff));
+      tbody.appendChild(row);
+    });
+    table.appendChild(tbody);
+    var wrap = el('div', 'halo-audit__compare-wrap');
+    wrap.appendChild(table);
+    box.appendChild(wrap);
+
+    var mineSpeed = data.summary.groups.speed;
+    var theirSpeed = them.summary.groups.speed;
+    if (data.speed_done && them.speed_done && mineSpeed && theirSpeed && (mineSpeed.score === null) !== (theirSpeed.score === null)) {
+      box.appendChild(el('p', 'halo-audit__note', 'Speed was measured for only one of the two pages, so the overall scores are not directly comparable.'));
+    }
   };
 
   Widget.prototype.renderActions = function () {
@@ -298,9 +391,14 @@
       }).then(function (full) {
         if (self.data !== data) { return; }
         data.unlocked = true;
-        data.checks = full.checks;
         clear(box);
-        self.renderFindings();
+        if (self.isBehind(full)) {
+          self.loadFull();
+        } else {
+          self.applyFull(full);
+          self.renderSummary();
+          self.renderFindings();
+        }
         self.setState('unlocked');
         self.findings.focus();
         // The unlock is a cookie for the whole site, so every other widget on the page is unlocked too.
@@ -330,13 +428,39 @@
     }
   };
 
-  Widget.prototype.loadFull = function () {
+  /*
+   * Responses can arrive out of order: a full report fetched before a speed test finished can land after it.
+   * isBehind() spots a full report that knows less about speed than the page already shows.
+   */
+  Widget.prototype.isBehind = function (full) {
+    var data = this.data;
+    return !!((data.speed_done && !full.speed_done) ||
+      (data.competitor && data.competitor.speed_done && full.competitor && !full.competitor.speed_done));
+  };
+
+  /* Takes the findings and scores of a full report. A page's speed state only moves forward. */
+  Widget.prototype.applyFull = function (full) {
+    var data = this.data;
+    var mineDone = !!data.speed_done;
+    var theirsDone = !!(data.competitor && data.competitor.speed_done);
+    data.checks = full.checks;
+    data.pairs = full.pairs || null;
+    data.summary = full.summary;
+    data.speed_done = mineDone || !!full.speed_done;
+    if (full.competitor) {
+      data.competitor = full.competitor;
+      data.competitor.speed_done = theirsDone || !!full.competitor.speed_done;
+    }
+  };
+
+  Widget.prototype.loadFull = function (retried) {
     var self = this;
     var data = this.data;
     api('GET', 'report/' + data.report_id).then(function (full) {
       if (self.data !== data) { return; }
-      data.checks = full.checks;
-      data.summary = full.summary;
+      // The stored report is newer than this answer by now (the speed result is saved before it is sent).
+      if (self.isBehind(full) && !retried) { self.loadFull(true); return; }
+      self.applyFull(full);
       self.renderSummary();
       self.renderFindings();
       self.setState('unlocked');
@@ -347,6 +471,50 @@
     });
   };
 
+  /* One page's result for one check in a comparison. side is null when the check did not run on that page. */
+  function result(side, who, label, withFix) {
+    var box = el('div', 'halo-audit__result halo-audit__result--' + who + ' halo-audit__result--' + (side ? side.status : 'not_checked'));
+    box.appendChild(el('span', 'halo-audit__result-page', label));
+    box.appendChild(el('span', 'halo-audit__badge', side ? (STATUS[side.status] || side.status) : 'Not checked'));
+    if (side && side.evidence) { box.appendChild(el('p', 'halo-audit__evidence', side.evidence)); }
+    if (withFix && side && side.message) { box.appendChild(el('p', 'halo-audit__fix', side.message)); }
+    return box;
+  }
+
+  Widget.prototype.renderComparisonFindings = function () {
+    var self = this;
+    var data = this.data;
+    var box = this.findings;
+    var groups = {};
+    var order = [];
+    data.pairs.forEach(function (pair) {
+      if (!groups[pair.group]) { groups[pair.group] = []; order.push(pair.group); }
+      groups[pair.group].push(pair);
+    });
+    order.forEach(function (key) {
+      var section = el('section', 'halo-audit__section');
+      section.appendChild(self.heading(1, 'halo-audit__section-title', data.labels[key] || key));
+      var mine = data.summary.groups[key];
+      var theirs = data.competitor.summary.groups[key];
+      if (mine || theirs) {
+        section.appendChild(el('p', 'halo-audit__section-scores',
+          'Your page: ' + groupScore(mine, data.speed_done, key) + ' \u00b7 Competitor page: ' + groupScore(theirs, data.competitor.speed_done, key)));
+      }
+      groups[key].forEach(function (pair) {
+        var item = el('div', 'halo-audit__check halo-audit__check--compare');
+        item.setAttribute('data-check', pair.id);
+        item.appendChild(el('strong', 'halo-audit__check-title', pair.title));
+        var both = el('div', 'halo-audit__results-pair');
+        both.appendChild(result(pair.mine, 'you', 'Your page', true));
+        both.appendChild(result(pair.theirs, 'them', 'Competitor page', false));
+        item.appendChild(both);
+        item.appendChild(el('p', 'halo-audit__why', pair.why));
+        section.appendChild(item);
+      });
+      box.appendChild(section);
+    });
+  };
+
   Widget.prototype.renderFindings = function () {
     var self = this;
     var data = this.data;
@@ -354,25 +522,29 @@
     clear(box);
     if (!data.checks) { return; }
 
-    var groups = {};
-    data.checks.forEach(function (row) { (groups[row.group] = groups[row.group] || []).push(row); });
-
-    Object.keys(groups).forEach(function (key) {
-      var section = el('section', 'halo-audit__section');
-      section.appendChild(self.heading(1, 'halo-audit__section-title', data.labels[key] || key));
-      groups[key].forEach(function (row) {
-        var item = el('div', 'halo-audit__check halo-audit__check--' + row.status);
-        item.appendChild(el('span', 'halo-audit__badge', STATUS[row.status] || row.status));
-        var body = el('div', 'halo-audit__check-body');
-        body.appendChild(el('strong', 'halo-audit__check-title', row.title));
-        if (row.evidence) { body.appendChild(el('p', 'halo-audit__evidence', row.evidence)); }
-        if (row.message) { body.appendChild(el('p', 'halo-audit__fix', row.message)); }
-        body.appendChild(el('p', 'halo-audit__why', row.why));
-        item.appendChild(body);
-        section.appendChild(item);
+    box.classList.toggle('halo-audit__findings--compare', !!(data.competitor && data.pairs));
+    if (data.competitor && data.pairs) {
+      this.renderComparisonFindings();
+    } else {
+      var groups = {};
+      data.checks.forEach(function (row) { (groups[row.group] = groups[row.group] || []).push(row); });
+      Object.keys(groups).forEach(function (key) {
+        var section = el('section', 'halo-audit__section');
+        section.appendChild(self.heading(1, 'halo-audit__section-title', data.labels[key] || key));
+        groups[key].forEach(function (row) {
+          var item = el('div', 'halo-audit__check halo-audit__check--' + row.status);
+          item.appendChild(el('span', 'halo-audit__badge', STATUS[row.status] || row.status));
+          var body = el('div', 'halo-audit__check-body');
+          body.appendChild(el('strong', 'halo-audit__check-title', row.title));
+          if (row.evidence) { body.appendChild(el('p', 'halo-audit__evidence', row.evidence)); }
+          if (row.message) { body.appendChild(el('p', 'halo-audit__fix', row.message)); }
+          body.appendChild(el('p', 'halo-audit__why', row.why));
+          item.appendChild(body);
+          section.appendChild(item);
+        });
+        box.appendChild(section);
       });
-      box.appendChild(section);
-    });
+    }
 
     var scan = el('section', 'halo-audit__section halo-audit__scan');
     scan.appendChild(self.heading(1, 'halo-audit__section-title', 'Live AI visibility'));

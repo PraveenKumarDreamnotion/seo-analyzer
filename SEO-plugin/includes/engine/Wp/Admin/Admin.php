@@ -1,6 +1,7 @@
 <?php
 namespace HaloAudit\Wp\Admin;
 
+use HaloAudit\Wp\BrevoSync;
 use HaloAudit\Wp\Gate;
 use HaloAudit\Wp\Installer;
 
@@ -14,6 +15,7 @@ final class Admin
         add_action('admin_menu', [self::class, 'menu']);
         add_action('admin_init', [Settings::class, 'register']);
         add_action('admin_post_' . self::EXPORT_ACTION, [self::class, 'export']);
+        add_action('admin_post_' . Settings::CLEAR_ACTION, [Settings::class, 'clearSecret']);
         add_action('admin_notices', [self::class, 'printMailNotice']);
     }
 
@@ -30,11 +32,53 @@ final class Admin
             . '<a href="' . esc_url(admin_url('admin.php?page=' . Settings::PAGE)) . '">settings page</a>, or the mail setup of this site.</p></div>';
     }
 
+    /** Shown on this plugin's screens after a confirmed visitor could not be added to the Brevo list. A later success clears it. */
+    public static function brevoNotice(): string
+    {
+        $failed = get_option(BrevoSync::FAILURE_OPTION, null);
+        if (!is_array($failed) || !BrevoSync::enabled()) {
+            return '';
+        }
+        $reason = BrevoSync::REASONS[$failed['code'] ?? ''] ?? 'unexpected answer from Brevo';
+        return '<div class="notice notice-warning"><p><strong>A confirmed visitor could not be added to the Brevo list</strong> on '
+            . esc_html(wp_date(get_option('date_format') . ' ' . get_option('time_format'), (int) ($failed['at'] ?? 0)))
+            . ': ' . esc_html($reason) . (empty($failed['http']) ? '' : ' (HTTP ' . (int) $failed['http'] . ')')
+            . '. The lead is saved here; see the Brevo column on the Reports page. Check the Brevo key, the list ID and Brevo\'s Authorised IPs on the '
+            . '<a href="' . esc_url(admin_url('admin.php?page=' . Settings::PAGE)) . '">settings page</a>.</p></div>';
+    }
+
+    /** Shown on this plugin's screens when the last sync could not save every contact attribute. Names only. */
+    public static function brevoAttributeNotice(): string
+    {
+        $last = get_option(BrevoSync::ATTRIBUTE_OPTION, null);
+        if (!is_array($last) || !BrevoSync::enabled()) {
+            return '';
+        }
+        $parts = [];
+        $missing = array_values(array_filter((array) ($last['missing'] ?? []), static fn($n) => in_array($n, BrevoSync::ATTRIBUTES, true)));
+        if ($missing) {
+            $parts[] = 'Brevo did not save ' . implode(', ', $missing) . '. Check that these contact attributes exist in Brevo (Contacts, Settings, Contact attributes) with the type Text and exactly these names';
+        }
+        if (in_array($last['page'] ?? '', ['missing', 'invalid'], true)) {
+            $parts[] = $last['page'] === 'missing'
+                ? 'FORM_NAME was not sent because the form page was not known: clear the page cache and minified files for the pages with the form'
+                : 'FORM_NAME was not sent because the form page value failed its check';
+        }
+        if (!$parts) {
+            return '';
+        }
+        return '<div class="notice notice-warning"><p><strong>A confirmed visitor was added to the Brevo list, but not every contact detail was saved</strong> ('
+            . esc_html(wp_date(get_option('date_format') . ' ' . get_option('time_format'), (int) ($last['at'] ?? 0))) . '). '
+            . esc_html(implode('. ', $parts)) . '. See the Brevo column on the Reports page.</p></div>';
+    }
+
     public static function printMailNotice(): void
     {
         $screen = function_exists('get_current_screen') ? get_current_screen() : null;
         if ($screen && strpos((string) $screen->id, 'seo-analyzer') !== false && current_user_can(self::CAPABILITY)) {
             echo self::mailNotice(); // phpcs:ignore WordPress.Security.EscapeOutput -- escaped in mailNotice()
+            echo self::brevoNotice(); // phpcs:ignore WordPress.Security.EscapeOutput -- escaped in brevoNotice()
+            echo self::brevoAttributeNotice(); // phpcs:ignore WordPress.Security.EscapeOutput -- escaped in brevoAttributeNotice()
         }
     }
 
@@ -75,7 +119,7 @@ final class Admin
     {
         global $wpdb;
         return $wpdb->get_results(
-            'SELECT name, email, url, keyword, overall_score, grade, is_education, created_at FROM ' . Installer::resultsTable()
+            'SELECT name, email, url, keyword, overall_score, grade, is_education, created_at, competitor_url, competitor_overall_score FROM ' . Installer::resultsTable()
             . " WHERE email IS NOT NULL AND email <> '' ORDER BY id DESC",
             ARRAY_A
         );
@@ -99,7 +143,8 @@ final class Admin
         header('Content-Disposition: attachment; filename="halo-audit-leads-' . gmdate('Y-m-d') . '.csv"');
 
         $out = fopen('php://output', 'w');
-        fputcsv($out, ['Name', 'Email', 'Page', 'Keyword', 'Score', 'Grade', 'Education', 'Date']);
+        // The competitor columns come last so the earlier columns keep their places for existing spreadsheets.
+        fputcsv($out, ['Name', 'Email', 'Page', 'Keyword', 'Score', 'Grade', 'Education', 'Date', 'Competitor page', 'Competitor score']);
         foreach (self::exportRows() as $row) {
             fputcsv($out, array_map(static fn($value): string => self::csvCell((string) $value), array_values($row)));
         }

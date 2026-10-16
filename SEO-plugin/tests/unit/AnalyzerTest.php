@@ -19,7 +19,7 @@ final class AnalyzerTest extends TestCase
     protected function setUp(): void
     {
         $this->http = new FakeHttp();
-        $guard = new UrlGuard(static fn(string $host): array => $host === 'intranet.example' ? ['10.0.0.9'] : ['93.184.216.34']);
+        $guard = new UrlGuard(static fn(string $host): array => ['intranet.example' => ['10.0.0.9'], 'nowhere.example' => []][$host] ?? ['93.184.216.34']);
         $this->analyzer = new Analyzer(new Fetcher($this->http, $guard), new FixedCert(90), static fn(): int => Make::NOW);
     }
 
@@ -40,7 +40,7 @@ final class AnalyzerTest extends TestCase
         $out = $this->analyzer->analyze('example.com/courses/mba/', 'MBA');
         $this->assertTrue($out['ok']);
         $report = $out['report'];
-        $this->assertSame('2.0.0', $report['engine_version']);
+        $this->assertSame('2.0.1', $report['engine_version']);
         $this->assertSame('https://example.com/courses/mba/', $report['url']);
         $this->assertSame('MBA', $report['keyword']);
         $this->assertSame(Make::NOW, $report['created_at']);
@@ -97,7 +97,93 @@ final class AnalyzerTest extends TestCase
             '404' => ['https://example.com/missing', Response::make(404, 'nope', ['Content-Type' => 'text/html']), 'http_error'],
             'bot wall' => ['https://example.com/wall', Response::make(403, 'denied', ['Content-Type' => 'text/html']), 'http_error'],
             'pdf' => ['https://example.com/file.pdf', Response::make(200, '%PDF-1.7', ['Content-Type' => 'application/pdf']), 'not_html'],
+            // Only a 2xx answer carries a page to score.
+            'no content' => ['https://example.com/n', Response::make(204, '', ['Content-Type' => 'text/html']), 'empty'],
+            'not modified' => ['https://example.com/n', Response::make(304, '', ['Content-Type' => 'text/html']), 'http_error'],
+            'redirect without address' => ['https://example.com/n', Response::make(302, '<html><body>moved</body></html>', ['Content-Type' => 'text/html']), 'http_error'],
+            'multiple choices' => ['https://example.com/n', Response::make(300, '<html><body>pick</body></html>', ['Content-Type' => 'text/html']), 'http_error'],
+            'informational' => ['https://example.com/n', Response::make(101, '<html></html>', ['Content-Type' => 'text/html']), 'http_error'],
+            'empty 200' => ['https://example.com/n', Response::make(200, " \n ", ['Content-Type' => 'text/html']), 'empty'],
+            // No Content-Type: the body must look like HTML.
+            'untyped text' => ['https://example.com/n', Response::make(200, 'plain words, not a page'), 'not_html'],
+            'untyped json' => ['https://example.com/n', Response::make(200, '{"html":"<p>no</p>"}'), 'not_html'],
+            // Each transport problem gets its own code.
+            'dns' => ['https://example.com/n', Response::error('cURL error 6: Could not resolve host: example.com'), 'dns'],
+            'unresolvable name' => ['https://nowhere.example/', null, 'dns'],
+            'tls' => ['https://example.com/n', Response::error('cURL error 60: SSL certificate problem: certificate has expired'), 'tls'],
+            'refused' => ['https://example.com/n', Response::error('cURL error 7: Failed to connect to example.com port 443: Connection refused'), 'connect'],
+            'timed out' => ['https://example.com/n', Response::error('cURL error 28: Operation timed out after 15001 milliseconds'), 'unreachable'],
+            'wp refused url' => ['https://example.com/n', Response::error('A valid URL was not provided.'), 'blocked'],
         ];
+    }
+
+    public function test_redirect_loop_is_named(): void
+    {
+        foreach ([1, 2, 3, 4] as $i) {
+            $this->http->routes["https://example.com/$i"] = Response::make(301, '', ['Location' => '/' . ($i + 1)]);
+        }
+        $out = $this->analyzer->analyze('https://example.com/1', 'mba');
+        $this->assertSame('redirects', $out['code']);
+        $this->assertStringContainsString('redirects more than 3 times', $out['message']);
+    }
+
+    /** @dataProvider messages */
+    public function test_error_messages_say_what_went_wrong(string $error, string $code, string $phrase): void
+    {
+        [$gotCode, $message] = Analyzer::fetchError($error);
+        $this->assertSame($code, $gotCode);
+        $this->assertStringContainsString($phrase, $message);
+    }
+
+    public function messages(): array
+    {
+        return [
+            'timeout' => ['cURL error 28: Operation timed out', 'unreachable', 'did not answer in time'],
+            'budget' => ['time budget used up', 'unreachable', 'did not answer in time'],
+            'dns' => ['cURL error 6: Could not resolve host: x', 'dns', 'does not resolve'],
+            'guard dns' => ['blocked: the host name does not resolve', 'dns', 'does not resolve'],
+            'guard private' => ['blocked: private or reserved addresses are not allowed', 'blocked', 'cannot be checked'],
+            'tls' => ['cURL error 35: OpenSSL SSL_connect: SSL_ERROR_SYSCALL', 'tls', 'certificate'],
+            'refused' => ['cURL error 7: Failed to connect to x port 443', 'connect', 'refused or dropped'],
+            'empty reply' => ['cURL error 52: Empty reply from server', 'connect', 'refused or dropped'],
+            'redirects' => ['too many redirects', 'redirects', 'redirects more than'],
+            'unknown' => ['something odd', 'unreachable', 'connection to the site failed'],
+            'no curl' => ['unsafe transport: the PHP cURL extension (with SSL) is needed to read pages safely', 'transport', 'cURL extension'],
+            'unpinned' => ['unsafe transport: the request did not go through the pinned cURL transport', 'transport', 'cannot run audits safely'],
+        ];
+    }
+
+    public function test_untyped_html_is_accepted(): void
+    {
+        $this->http->routes['https://example.com/courses/mba/'] = Response::make(200, "\xEF\xBB\xBF\n<!-- cache -->\n" . $this->html());
+        $this->assertTrue($this->analyzer->analyze('https://example.com/courses/mba/', 'mba')['ok']);
+    }
+
+    public function test_untyped_html_fragment_without_document_start_is_rejected(): void
+    {
+        $this->http->routes['https://example.com/x'] = Response::make(200, 'Error: <b>database</b> unavailable <html>');
+        $this->assertSame('not_html', $this->analyzer->analyze('https://example.com/x', 'mba')['code']);
+    }
+
+    public function test_unmeasured_side_files_do_not_change_the_score(): void
+    {
+        // Same page twice: once with every side file refused or broken, once with no answer at all.
+        $this->servePage();
+        $baseline = $this->analyzer->analyze('https://example.com/courses/mba/', 'mba')['report'];
+
+        $this->setUp();
+        $this->servePage();
+        foreach (['/robots.txt', '/llms.txt', '/sitemap.xml', '/sitemap_index.xml', '/wp-sitemap.xml', '/feed/', '/rss.xml', '/atom.xml', '/feed.xml'] as $i => $path) {
+            // robots.txt gets the 503: a 4xx robots.txt is "no rules" under RFC 9309, which is a real answer.
+            $this->http->routes['https://example.com' . $path] = Response::make([503, 429, 403, 500, 502][$i % 5], 'nope');
+        }
+        $refused = $this->analyzer->analyze('https://example.com/courses/mba/', 'mba')['report'];
+
+        $rows = array_column($refused['checks'], 'status', 'id');
+        foreach (['ai_crawlers', 'robots_reachable', 'llms_txt', 'sitemap', 'feed'] as $id) {
+            $this->assertSame('not_measured', $rows[$id], $id);
+        }
+        $this->assertSame($baseline['summary'], $refused['summary']);
     }
 
     public function test_http_error_message_names_the_status(): void
