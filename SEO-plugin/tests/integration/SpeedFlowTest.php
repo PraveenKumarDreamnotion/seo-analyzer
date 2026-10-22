@@ -259,7 +259,7 @@ class Halo_Speed_Flow_Test extends WP_UnitTestCase
 
         $early = $this->call('GET', '/report/' . $id)->get_data();
         $this->assertFalse($early['speed_done']);
-        $this->assertNull($early['summary']['groups']['speed']['score'], 'Before the test: no number, the page shows "Testing speed...".');
+        $this->assertNull($early['summary']['groups']['speed']['score'], 'Before the test: no number, the page shows "Testing…".');
         $this->assertSame(['not_measured', 'not_measured', 'not_measured'], array_column(self::speedRows($early['checks']), 0));
 
         $this->call('POST', '/speed', ['report_id' => $id]);
