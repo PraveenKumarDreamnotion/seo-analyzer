@@ -90,7 +90,7 @@ Inputs stay the same: one URL and one primary keyword.
 | Staging leaks | none | | page references localhost, `.local`, `.test`, `.kinsta.cloud`, wpengine, flywheel or pantheon staging hosts |
 | Content without JavaScript | 200 or more words in raw HTML | 50 to 199 | under 50 |
 | AI crawlers (GPTBot, OAI-SearchBot, ChatGPT-User, ClaudeBot, PerplexityBot, Google-Extended, CCBot) | all allowed for the page path | 1 or 2 blocked | 3 or more blocked, or `Disallow: /` for `*` |
-| `llms.txt` | 200, not HTML, starts with `#` | present but malformed | missing |
+| `llms.txt` | 200, not HTML, starts with `#` | present but malformed | missing (404, 410 or another 4xx, or an HTML page at that address) |
 | JSON-LD | present and parses | none | present but invalid |
 | Schema types | Organization or WebSite, plus a page-fit type | only one | none |
 | FAQ schema | `FAQPage` present, or the page has no FAQ | FAQ-style heading, no `FAQPage` | 5 or more Q&A items, no `FAQPage` |
@@ -106,6 +106,28 @@ Inputs stay the same: one URL and one primary keyword.
 A missing `robots.txt` (404) means all crawlers are allowed. That is a pass for
 AI-crawler access and a warn for "`robots.txt` reachable".
 
+Added in 2.0.1 (decided by the developer on 2026-10-15 for the local build; **pending Sandeep's review**, like the other 2.0.1 notes in sections 3.3, 6, 7 and 10):
+
+- **Unavailable answers are not evidence.** A side file that answers 401, 403,
+  407, 408, 425, 429, 5xx, a 1xx, or a redirect with no address, or does not
+  answer at all, says nothing about whether the file exists. The checks that
+  need it are `not_measured`. "No sitemap" and "no feed" need a definite answer
+  (404, 410, another 4xx, or a 200 that is not a sitemap or feed) from every
+  address tried.
+- **robots.txt and AI crawlers follow RFC 9309.** A 4xx `robots.txt`, including
+  401 and 403, means no rules, so AI-crawler access passes. A 429 or 5xx leaves
+  the rules unknown (`not_measured`). "`robots.txt` reachable" is `not_measured`
+  for 401, 403 and 429.
+- **`Disallow: /` for `*`** is a fail when at least one of the seven AI crawlers
+  has no group of its own and so falls under `*`. When all seven have their own
+  groups, `*` does not apply to them (RFC 9309 group selection) and their own
+  rules decide.
+- **Schema types.** The site half (Organization, WebSite and similar) may be
+  nested, for example `Article.publisher`. The page-fit half must be a top-level
+  object or an `@graph` member, and is not a helper type (BreadcrumbList,
+  ListItem, ItemList, ImageObject, SearchAction, EntryPoint, ReadAction and
+  similar). A generic `WebPage` counts as page-fit.
+
 The house rule `no_em_dashes` from Halo is not ported. It is a Thrivemattic
 style rule, not a rule for a visitor's site.
 
@@ -120,6 +142,9 @@ style rule, not a rule for a visitor's site.
   3.1, renormalised over measured groups.
 - `not_measured` checks are left out of every mean. A group with no measured
   checks shows "Not measured" and is left out of the overall score.
+- So an unmeasured check is never counted as a failure. Because the means are
+  renormalised, leaving a check out can still move a group score up or down:
+  the score reflects only the checks that ran.
 - If the page itself cannot be fetched, there is no score at all (see 6).
 - Grade: A 90+, B 70+, C 50+, D 30+, else F (Halo bands).
 
@@ -184,6 +209,8 @@ All new code sits under `SEO-plugin/includes/engine/` with one class per file.
 
 - Shortcode `[seo_analyzer]` and its attributes. `comparison`, `nlp` and
   `competitor` are accepted and ignored so existing pages do not break.
+  Amended after 2.0.1 (2026-10-16, **pending Sandeep's review**): `comparison="true"`
+  brings back the competitor comparison, see "Competitor comparison" below.
 - Admin menu, Settings page, Reports page.
 - Table `wp_seo_analyzer_results` (extended, see 5).
 - Brevo mailer with the `wp_mail` fallback.
@@ -198,7 +225,46 @@ All new code sits under `SEO-plugin/includes/engine/` with one class per file.
   `verify_otp_and_save_data` handler in `seo-analyzer.php`.
 - The two add-on plugins are not loaded and are marked deprecated in the
   README. Their folders are deleted from the repo in the same pull request.
-- Competitor comparison. It may return in part 3.
+- Competitor comparison. It may return in part 3. (Brought back after 2.0.1, see below.)
+
+### Competitor comparison (amendment after 2.0.1, pending review)
+
+Restored on 2026-10-16 at the request of the developer, because the tool page
+`/ai-tools/competitor-analysis/` still carries `comparison="true"`.
+
+- From 1.x (recovered from commit `dc8ec62`): `comparison="true"` adds a required
+  competitor URL field between the page and the keyword; both pages are audited
+  with the same keyword by the same analysis; the report shows both overall
+  scores, each category for both pages, and the competitor's result per factor;
+  the PDF included the competitor. `competitor` was printed as a data attribute
+  and had no effect.
+- In 2.x the two pages are scored by the same `Analyzer` and `Scorer`; no second
+  engine. Each page gets its own `Analyzer`, so the address check, pinning, time
+  budget and cache are separate. Categories are the four 2.x groups, not the
+  eight 1.x categories.
+- Differences from 1.x: if either page cannot be read the request fails (422,
+  "Your page: ..." or "Competitor page: ...") and nothing is stored, where 1.x
+  showed the competitor as "Unavailable". Two addresses for one page are refused
+  (400). A comparison counts as 2 in the analyze limit and 2 in the speed limit.
+  `competitor="false"` turns the comparison off.
+- `/analyze` takes an optional `competitor_url`. The competitor report goes in
+  the existing `competitor_*` columns. The free view has both summaries; the
+  gated view and the PDF add both sets of findings.
+
+### Brevo list sync and comparison findings (amendment, 2026-10-16, pending review)
+
+- 1.x added contacts to Brevo list 14 from the OpenAI add-on's public AJAX action
+  (`handle_brevo_submission`, fired by the add-on's popup buttons, no rate limit, full payload logged).
+  2.0.0 retired the add-on and nothing replaced it, so verified visitors stopped reaching the list.
+- Now `BrevoSync` runs after a successful `/gate/verify` (after the answer is sent; WP-Cron backstop and
+  retries). Off unless a list ID is set in Settings. GET the contact; create it with `listIds` if new, or
+  add it to the list if it exists. Both get NAME, KEYWORD, URL, COMPETITOR_URL and FORM_NAME from the stored
+  report and lead (PUT for an existing contact; empty values left out; no other attribute touched). FORM_NAME
+  is the canonical address of the page the form was submitted on, from a signed `data-form-page` value the
+  shortcode renders (this site's host only; omitted off single pages). Success only when a final GET shows
+  the list in `listIds`. Status per contact in a non-autoloaded option keyed by a hash of the email.
+- Comparison findings are paired by check ID on the server (`ReportView::pairs`); the browser and the PDF
+  render the pairs, one column per page.
 
 ### Endpoints
 
@@ -259,10 +325,11 @@ New options: scan server URL, scan server secret (both empty in part 1).
 
 | Failure | Behaviour |
 |---|---|
-| Page returns 4xx/5xx, times out, or is a bot wall (403/429) | No score. Message: "We could not read this page", with the HTTP status. Nothing is stored as a zero |
-| Side file fails (`robots.txt` 5xx, sitemap timeout) | The checks that need it are `not_measured` |
+| Page answers with anything but a 2xx with a body (4xx/5xx, a bot wall such as 403/429, 1xx, 204/304, a redirect with no address, an empty body), or the fetch fails | No score. The message names the cause: the HTTP status, address not found, certificate, connection refused, more than 3 redirects, or no answer in time. Nothing is stored as a zero |
+| Side file fails, is refused or rate-limited (see 3.2) | The checks that need it are `not_measured` |
 | PageSpeed fails or has no key | Speed group "Not measured". Overall score renormalised |
-| Non-HTML response | No score. Message says the URL is not a web page |
+| Non-HTML response, or no Content-Type and a body that does not start like an HTML document | No score. Message says the URL is not a web page |
+| The server cannot pin the connection (no usable PHP cURL transport) | No audit. The plugin needs the `curl` extension and stays off without it |
 | Rate limit hit | HTTP 429 with a plain message and the wait time |
 | Wrong code 5 times | The code is void. Visitor must request a new one |
 
@@ -275,8 +342,8 @@ Deploy the Task 2 patch from `PLAN.md` first. It closes rows 1, 8, 9 and 10.
 | 1 | `handle_report_actions` runs on `admin_init` with no capability or nonce check. `admin-ajax.php?page=seo-analyzer-reports&action=view&id=N` can expose lead name and email to a logged-out visitor | `current_user_can('manage_options')` + `check_admin_referer` on every admin action |
 | 2 | The gate is enforced only in the browser. Full results are in the DOM and in `window.seoAnalysisResults` | The server returns findings only after a verified unlock |
 | 3 | The browser posts the results JSON that gets saved | The server stores its own results. The browser sends the report ID only |
-| 4 | SSRF: `wp_remote_get` on any host, localhost allowed, SSL checks off for local hosts, 5 redirects | `wp_safe_remote_get`, http/https only, ports 80/443 only, host resolved and rejected if private, loopback or link-local, max 3 redirects each re-checked, SSL verification always on |
-| 5 | No limit on sending codes; no limit on guesses; code stored in plain text | 3 codes per email per hour, 10 per IP per hour, 5 attempts, hash stored |
+| 4 | SSRF: `wp_remote_get` on any host, localhost allowed, SSL checks off for local hosts, 5 redirects | `wp_safe_remote_get`, http/https only, ports 80/443 only, host resolved and rejected if private, loopback or link-local, max 3 redirects each re-checked, SSL verification always on. Added in 2.0.1: an explicit table of special-purpose IPv4 and IPv6 ranges, with IPv4-mapped, NAT64 and 6to4 addresses judged by the IPv4 inside; every fetch is pinned to the checked address (cURL `CURLOPT_RESOLVE`) and fails closed when cURL cannot be used |
+| 5 | No limit on sending codes; no limit on guesses; code stored in plain text | 3 codes per email per hour, 10 per IP per hour, 5 attempts, hash stored. Added in 2.0.1: each attempt is claimed in one conditional `UPDATE` before the code is checked and the code is used up by a single-winner `DELETE`, so parallel requests cannot exceed 5 tries or unlock twice; 30 code checks per IP per hour (best-effort, transient-based) |
 | 6 | No rate limit on analysis | 10 analyses per IP per hour |
 | 7 | PDF endpoint renders any posted HTML | PDF is built on the server from the stored report. mPDF remote fetching is off |
 | 8 | Open endpoints: `test_wp_mail`, four `save_competitor_*` | Deleted |
@@ -306,7 +373,7 @@ trusted.
 ## 9. Not in part 1
 
 - Live AI-answer checks (parts 2 and 3).
-- Competitor comparison.
+- Competitor comparison. (Brought back after 2.0.1, see section 4.)
 - Multi-page crawl, broken-link check, duplicate-title check.
 - LLM-written recommendations.
 - Changes to the tool page copy on the site.
@@ -321,4 +388,6 @@ trusted.
   endpoints and front-end, PDF, removals.
 - Plugin version goes to 2.0.0. `Requires PHP: 8.0` and `Requires at least:
   6.2` are added to the header.
+- 2.0.1 (hardening, 2026-10-15) changes scoring, so `engine_version` is 2.0.1.
+  Required PHP extensions: `curl`, `dom`, `mbstring`, `openssl`, `gd`.
 - Praveen deploys to staging. The acceptance run happens there.
