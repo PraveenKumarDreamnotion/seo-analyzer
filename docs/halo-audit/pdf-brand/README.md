@@ -27,7 +27,7 @@ None of the kit is wired into the PDF. The PDF that ships today:
 - ends without a call to action;
 - downloads as `halo-audit.pdf` (`Pdf::FILENAME`), with no site or date in the name.
 
-`BrandPdf.php` and `assets/images/` are not used by any code. The Lato and Oswald files in
+`BrandPdf.php` and `assets/images/` are not used by the plugin; only `render-reference.php` uses them. The Lato and Oswald files in
 `assets/fonts/` are used, but only by the on-page results view (`public/css/halo-audit.css`,
 see `../results-ui/README.md`), not by the PDF. The steps below are still to do.
 
