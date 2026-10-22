@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Status badges, colours and type follow the PDF: dark text on a light tint, olive accent `#808000`, charcoal ink, Oswald (`--halo-display`) for scores and headings. "Download PDF" is a charcoal outline button.
 - New shortcode attributes `cta_url`, `cta_title`, `cta_text` and `cta_button` add an optional closing block under the findings. Without `cta_url` there is no block.
 
+### Fixed (results design follow-up)
+- Filled buttons use `--halo-button` (`#6d6d00`, hover `#5c5c00`): white text on `#808000` was 4.20:1, below WCAG AA for 16px text; now 5.47:1. `#808000` stays the accent for bars, rules and focus rings.
+- Oswald and Lato load from the plugin's `assets/fonts/` (the PDF's font files) as "Halo Oswald" and "Halo Lato", so the scores and headings no longer depend on the theme having those fonts, and a theme's own Oswald or Lato is left alone.
+- The Speed line in the findings and the comparison table says "Testing…", as the area card does (was "Testing speed...").
+
 ### Added
 - Competitor comparison is back, built on the 2.x engine. With `comparison="true"` on the shortcode (as in 1.x) the form asks for your page, a competitor page and a keyword. Both pages are audited by the same checks and scoring; the report shows both overall scores, a side-by-side table of the four areas with the difference, and the competitor's result next to each of your findings. The PDF carries the same comparison. `competitor="false"` keeps it off; `competitor="true"` alone does nothing (as in 1.x).
 - The competitor's report is stored in the `competitor_url`, `competitor_results` and `competitor_overall_score` columns that the table already had. No schema change.

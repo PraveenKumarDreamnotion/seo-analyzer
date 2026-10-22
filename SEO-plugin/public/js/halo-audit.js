@@ -192,7 +192,7 @@
       }).then(function () {
         if (self.data !== data) { return; }
         self.renderSummary();
-        // The findings' area lines also said "Testing speed...".
+        // The findings' area lines also said "Testing…".
         if (data.checks) { self.renderFindings(); }
       });
     }
@@ -300,7 +300,7 @@
   }
 
   function groupScore(group, speedDone, key) {
-    if (key === 'speed' && !speedDone) { return 'Testing speed...'; }
+    if (key === 'speed' && !speedDone) { return 'Testing\u2026'; }
     return !group || group.score === null ? 'Not measured' : group.score + ' / 100';
   }
 

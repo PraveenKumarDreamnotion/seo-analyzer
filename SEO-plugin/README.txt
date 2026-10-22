@@ -75,6 +75,7 @@ If a code cannot be sent, the visitor sees "We could not send the code" and the 
 * `title=""` leaves the heading out. Use this when the page already has a heading for the tool.
 * `heading_level="3"` sets the heading level, 2 to 5. The default is 2.
 * `align="wide"` or `align="full"` adds the standard WordPress alignment class, so a block theme gives the tool its wide or full width.
+* `cta_url="https://example.com/contact/"` adds a closing block under the full findings, with a button to that address. `cta_title`, `cta_text` and `cta_button` set its heading, text and button label (the label defaults to "Talk to us"). Only an http or https address is accepted. Without `cta_url` there is no block.
 
 * `comparison="true"` turns on the competitor comparison: the form asks for your page, a competitor page and one keyword. Both pages are audited by the same checks and the report shows the two scores, each area side by side, and how the competitor page did on every finding. `competitor="false"` keeps the comparison off; `competitor="true"` on its own does nothing.
 
@@ -109,7 +110,9 @@ The colours suit a light background. To change them, set the `--halo-*` variable
 
 `.halo-audit { --halo-accent: #1a56db; --halo-radius: 4px; }`
 
-Variables: `--halo-ink`, `--halo-muted`, `--halo-line`, `--halo-soft`, `--halo-field`, `--halo-surface`, `--halo-pad`, `--halo-radius`, `--halo-accent`, `--halo-accent-ink`, `--halo-pass`, `--halo-warn`, `--halo-fail`.
+Variables: `--halo-ink`, `--halo-muted`, `--halo-line`, `--halo-soft`, `--halo-field`, `--halo-surface`, `--halo-pad`, `--halo-radius`, `--halo-accent`, `--halo-accent-ink`, `--halo-button`, `--halo-button-hover`, `--halo-display`, `--halo-body`, `--halo-pass`, `--halo-warn`, `--halo-fail`.
+
+`--halo-accent` colours the bars, rules and focus rings. The filled buttons use `--halo-button` and `--halo-button-hover` (a darker olive by default, so their white `--halo-accent-ink` text keeps a 4.5:1 contrast); set those too when you change the accent. `--halo-display` (scores and headings) defaults to Oswald and `--halo-body` (small labels) to Lato, both loaded from the plugin's own `assets/fonts/`; the rest of the text uses the theme's font.
 
 A theme can follow the tool's state. The root element carries `data-state` (`idle`, `invalid`, `loading`, `error`, `preview`, `gate`, `code`, `unlocked`), and a `halo-audit:state` event bubbles from it on each change.
 
